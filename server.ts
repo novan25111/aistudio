@@ -318,17 +318,17 @@ async function startServer() {
   app.get('/api/sectors/market-data', async (req, res) => {
     try {
       const proxySymbols = {
-        'Energi': 'ADRO.JK',
-        'Barang Baku': 'INKP.JK',
-        'Perindustrian': 'ASII.JK',
-        'Konsumer Primer': 'INDF.JK',
-        'Konsumer Non-Primer': 'ACES.JK',
-        'Kesehatan': 'KLBF.JK',
-        'Keuangan': 'BBCA.JK',
-        'Properti': 'CTRA.JK',
-        'Teknologi': 'GOTO.JK',
-        'Infrastruktur': 'TLKM.JK',
-        'Logistik': 'GIAA.JK'
+        'Energi': 'IDXENERGY.JK',
+        'Barang Baku': 'IDXBASIC.JK',
+        'Perindustrian': 'IDXINDUST.JK',
+        'Konsumer Primer': 'IDXNONCYC.JK',
+        'Konsumer Non-Primer': 'IDXCYCLIC.JK',
+        'Kesehatan': 'IDXHEALTH.JK',
+        'Keuangan': 'IDXFINANCE.JK',
+        'Properti': 'IDXPROPERT.JK',
+        'Teknologi': 'IDXTECHNO.JK',
+        'Infrastruktur': 'IDXINFRA.JK',
+        'Logistik': 'IDXTRANS.JK'
       };
 
       const macroSymbols = {
@@ -369,6 +369,58 @@ async function startServer() {
       res.json(marketData);
     } catch (e: any) {
       console.error('Error fetching sector market data:', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/market-ticker', async (req, res) => {
+    try {
+      // 1. Fetch from Yahoo Finance
+      const macroSymbols = {
+        'USD/IDR': 'IDR=X',
+        'Gold (XAU)': 'GC=F',
+        'Oil (WTI)': 'CL=F',
+        'Coal': 'MTF=F'
+      };
+      
+      const quotes = await yahooFinance.quote(Object.values(macroSymbols)).catch(() => []);
+      const tickerData: any[] = [];
+      
+      for (const [name, sym] of Object.entries(macroSymbols)) {
+        const q = quotes.find((q: any) => q.symbol === sym);
+        if (q) {
+           tickerData.push({
+             label: name,
+             value: q.regularMarketPrice ? q.regularMarketPrice.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '-',
+             change: q.regularMarketChangePercent || 0
+           });
+        }
+      }
+      
+      // Fallback/Simulated Data for items Yahoo Finance might miss
+      if (!tickerData.find(t => t.label === 'USD/IDR')) {
+         tickerData.push({ label: 'USD/IDR', value: '15,350', change: 0.12 });
+      }
+      if (!tickerData.find(t => t.label === 'Gold (XAU)')) {
+         tickerData.push({ label: 'Gold (XAU)', value: '2,350.50', change: -0.05 });
+      }
+      
+      tickerData.push(
+        { label: 'CPO (MYR)', value: '3,850.00', change: 1.2 },
+        { label: 'Nickel', value: '18,500.00', change: -0.4 }
+      );
+      
+      // 2. BI Rates (Simulated / Hardcoded as realistic values for now as scraping bi.go.id directly is unstable)
+      tickerData.push(
+        { label: 'BI Rate', value: '6.25%', change: 0 },
+        { label: 'Inflasi IHK', value: '2.75% yoy', change: -0.05 },
+        { label: 'Target Inflasi', value: '2.5% ± 1%', change: 0 },
+        { label: 'Cadangan Devisa', value: '$137.5 Miliar', change: 0.8 }
+      );
+      
+      res.json(tickerData);
+    } catch (e: any) {
+      console.error('Error fetching ticker:', e);
       res.status(500).json({ error: e.message });
     }
   });

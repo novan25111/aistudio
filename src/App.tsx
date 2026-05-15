@@ -110,40 +110,46 @@ const MOCK_MARKET_DATA: MarketData = {
 };
 
 const SECTOR_BASE_DATA = [
-  { name: "Energi (Energy)", code: "Energi", icon: "Zap" },
-  { name: "Barang Baku (Basic Materials)", code: "Barang Baku", icon: "Box" },
+  { name: "Energi (Energy)", code: "Energi", icon: "Zap", marketIndex: "IDX ENERGY" },
+  { name: "Barang Baku (Basic Materials)", code: "Barang Baku", icon: "Box", marketIndex: "IDX BASIC" },
   {
     name: "Perindustrian (Industrials)",
     code: "Perindustrian",
     icon: "Factory",
+    marketIndex: "IDX INDUST",
   },
   {
     name: "Barang Konsumen Primer (Consumer Non-Cyclicals)",
     code: "Konsumer Primer",
     icon: "ShoppingCart",
+    marketIndex: "IDX NONCYC",
   },
   {
     name: "Barang Konsumen Non-Primer (Consumer Cyclicals)",
     code: "Konsumer Non-Primer",
     icon: "Car",
+    marketIndex: "IDX CYCLIC",
   },
-  { name: "Kesehatan (Healthcare)", code: "Kesehatan", icon: "HeartPulse" },
-  { name: "Keuangan (Financials)", code: "Keuangan", icon: "Building2" },
+  { name: "Kesehatan (Healthcare)", code: "Kesehatan", icon: "HeartPulse", marketIndex: "IDX HEALTH" },
+  { name: "Keuangan (Financials)", code: "Keuangan", icon: "Building2", marketIndex: "IDX FINANCE" },
   {
     name: "Properti & Real Estat (Properties & Real Estate)",
     code: "Properti",
     icon: "Home",
+    marketIndex: "IDX PROPERT",
   },
-  { name: "Teknologi (Technology)", code: "Teknologi", icon: "Cpu" },
+  { name: "Teknologi (Technology)", code: "Teknologi", icon: "Cpu", marketIndex: "IDX TECHNO" },
   {
     name: "Infrastruktur (Infrastructures)",
     code: "Infrastruktur",
     icon: "ShieldCheck",
+    marketIndex: "IDX INFRA",
   },
   {
     name: "Transportasi & Logistik (Transportation & Logistics)",
     code: "Logistik",
     icon: "Truck",
+    marketIndex: "IDX TRANS",
   },
 ];
 
@@ -162,6 +168,7 @@ function calculateFinalScore(
   newsData: NewsItem[],
   macroData: MacroVariable[],
   netForeignFlowBillion: number,
+  actualDelta: number
 ): number {
   // TAHAP 1: Engine Sentimen Teks
   let totalTextImpact = 0;
@@ -193,7 +200,7 @@ function calculateFinalScore(
       macro.deltaPercentage * macro.macroWeight * macro.emitenBeta;
   }
 
-  // TAHAP 3: Validasi Institusi
+  // TAHAP 3: Validasi Institusi & Market Realita
   const preAlpha =
     TEXT_WEIGHT * totalTextImpact + MACRO_WEIGHT * totalMacroImpact;
 
@@ -208,8 +215,13 @@ function calculateFinalScore(
     else flowMultiplier = 0.3;
   }
 
-  // TAHAP 4 & 5: Persamaan Agregasi Akhir & Normalisasi
-  const totalAlpha = preAlpha * flowMultiplier;
+  // TAHAP 4: Menggabungkan Market Momentum (Actual Price Change)
+  // actualDelta represents percentage change (-2.5%, +3.1%, etc.)
+  // We amplify it to strongly impact the score (live reflection)
+  let momentumAlpha = actualDelta * 2.5; 
+  
+  // TAHAP 5: Persamaan Agregasi Akhir & Normalisasi
+  const totalAlpha = (preAlpha * flowMultiplier) + momentumAlpha;
   const finalScore = 50 + 50 * Math.tanh(TANH_SCALAR * totalAlpha);
 
   return Math.round(finalScore * 100) / 100;
@@ -310,6 +322,7 @@ export default function App() {
     INITIAL_RECOMMENDED_STOCKS,
   );
   const [newsData, setNewsData] = useState<NewsItem[]>(MOCK_NEWS_DATA);
+  const [tickerData, setTickerData] = useState<any[]>([]);
   const [selectedSector, setSelectedSector] = useState("Semua");
   const [selectedNewsType, setSelectedNewsType] = useState("Semua");
   const [fearGreedIndex, setFearGreedIndex] = useState(50);
@@ -402,16 +415,31 @@ export default function App() {
         sectorNews,
         buildMacroVariables(),
         netForeignFlowBillion,
+        actualDelta
       );
 
       let outlook: "Buy" | "Sell" | "Neutral" = "Neutral";
       if (score >= 60) outlook = "Buy";
       else if (score <= 40) outlook = "Sell";
 
+      const currentPrice = realMarketData?.price || 0;
+      const currentChangePercent = realMarketData?.changePercent || 0;
+      let prevPrice = 0;
+      let marketChangeValue = 0;
+
+      if (currentPrice !== 0) {
+        prevPrice = currentPrice / (1 + currentChangePercent / 100);
+        marketChangeValue = currentPrice - prevPrice;
+      }
+
       return {
         ...sector,
         change: Number(((score - 50) / 10).toFixed(2)),
         volume: realMarketData?.volume || 0,
+        price: currentPrice,
+        marketChangePercent: currentChangePercent,
+        marketChangeValue: marketChangeValue,
+        prevPrice: prevPrice,
         color:
           outlook === "Buy"
             ? "#10b981"
@@ -543,6 +571,18 @@ export default function App() {
     }
   };
 
+  const fetchTickerData = async () => {
+    try {
+      const res = await fetch('/api/market-ticker');
+      if (res.ok) {
+        const data = await res.json();
+        setTickerData(data);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const fetchSectorMarketData = async () => {
     try {
       const res = await fetch("/api/sectors/market-data");
@@ -561,6 +601,16 @@ export default function App() {
     fetchLivePrices();
     fetchNews();
     fetchSectorMarketData();
+    fetchTickerData();
+
+    // Polling interval (10 seconds)
+    const intervalId = setInterval(() => {
+      fetchSectorMarketData();
+      fetchTickerData();
+      fetchLivePrices();
+    }, 10000);
+
+    return () => clearInterval(intervalId);
   }, []);
 
   const fetchNews = async () => {
@@ -605,7 +655,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-neutral-200 bg-white/80 backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-950/80">
+      <header className="z-50 border-b border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-500/20">
@@ -646,8 +696,28 @@ export default function App() {
         </div>
       </header>
 
+      {/* Ticker Tape (Scrolls away with header) */}
+      {tickerData && tickerData.length > 0 && (
+        <div className="w-full bg-[#0a0a0a] border-b border-neutral-800 overflow-hidden flex">
+          <div className="flex whitespace-nowrap py-2 items-center animate-marquee hover:[animation-play-state:paused]">
+             {/* Duplicate the array twice for smooth infinite scrolling */}
+             {[...tickerData, ...tickerData, ...tickerData, ...tickerData].map((item, i) => (
+                <div key={i} className="flex items-center mx-4 gap-2.5">
+                   <span className="text-neutral-400 text-xs font-semibold tracking-wider uppercase">{item.label}</span>
+                   <span className="font-bold text-white text-sm">{item.value}</span>
+                   {item.change !== 0 && (
+                     <span className={cn("text-xs font-bold flex items-center gap-0.5", item.change > 0 ? "text-emerald-400" : "text-red-400")}>
+                        {item.change > 0 ? '▲' : '▼'} {Math.abs(item.change).toFixed(2)}%
+                     </span>
+                   )}
+                </div>
+             ))}
+          </div>
+        </div>
+      )}
+
       {/* Sticky Navigation Tabs */}
-      <div className="sticky top-16 z-40 w-full border-b border-neutral-200/80 bg-white/80 backdrop-blur-md dark:border-neutral-800/80 dark:bg-neutral-950/80">
+      <div className="sticky top-0 z-40 w-full border-b border-neutral-200/80 bg-white/80 backdrop-blur-md dark:border-neutral-800/80 dark:bg-neutral-950/80">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div
             className="flex w-full overflow-x-auto py-2 sm:py-3"
@@ -673,16 +743,16 @@ export default function App() {
         </div>
       </div>
 
-      <main className={cn("mx-auto py-6", activeTab === "News" ? "w-full px-4 sm:px-6 lg:px-8" : "max-w-7xl px-4 sm:px-6 lg:px-8")}>
+      <main className={cn("mx-auto py-4 sm:py-6", activeTab === "News" ? "w-full px-4 sm:px-6 lg:px-8" : "max-w-7xl px-4 sm:px-6 lg:px-8")}>
         {activeTab === "Dashboard" && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* Market Banner */}
-            <section className="mb-8 overflow-hidden rounded-3xl bg-neutral-900 p-6 text-white shadow-2xl transition-all duration-500 hover:shadow-blue-500/10 lg:p-8 dark:bg-neutral-900/50">
+            <section className="mb-6 sm:mb-8 overflow-hidden rounded-[2rem] bg-neutral-900 p-6 sm:p-8 text-white shadow-2xl transition-all duration-500 hover:shadow-blue-500/10 dark:bg-neutral-900/50">
               <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-center">
-                <div className="space-y-4 w-full lg:w-1/2">
+                <div className="space-y-4 w-full lg:w-2/3">
                   <div className="flex items-center gap-2 text-neutral-400">
                     <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-orange-500"></span>
-                    <span className="text-sm font-medium uppercase tracking-wider">
+                    <span className="text-xs sm:text-sm font-medium uppercase tracking-wider">
                       Fear & Greed Index - Saham Indonesia
                     </span>
                   </div>
@@ -690,17 +760,17 @@ export default function App() {
                     <div className="flex items-end gap-3">
                       <span
                         className={cn(
-                          "text-6xl font-black tracking-tighter",
+                          "text-5xl sm:text-6xl font-black tracking-tighter",
                           fgColor,
                         )}
                       >
                         {fearGreedIndex}
                       </span>
-                      <span className="text-2xl font-bold text-neutral-300 mb-2">
+                      <span className="text-xl sm:text-2xl font-bold text-neutral-300 mb-1.5 sm:mb-2">
                         {fgLabel}
                       </span>
                     </div>
-                    <div className="w-full sm:w-64 max-w-sm mb-3">
+                    <div className="w-full sm:w-64 max-w-sm mb-2 sm:mb-3 mt-2 sm:mt-0">
                       <div className="flex justify-between text-[10px] uppercase font-bold text-neutral-500 mb-2">
                         <span>Extreme Fear</span>
                         <span>Extreme Greed</span>
@@ -719,9 +789,9 @@ export default function App() {
                       </div>
                     </div>
                   </div>
-                  <p className="text-xs text-neutral-400">
+                  <p className="text-xs sm:text-sm text-neutral-400/80 leading-relaxed max-w-md">
                     Menunjukkan sentimen dan emosi investor pasar saham saat
-                    ini.
+                    ini berdasarkan news live dan pricing changes.
                   </p>
                 </div>
 
@@ -729,19 +799,19 @@ export default function App() {
                   <button
                     onClick={handleRefresh}
                     disabled={isRefreshing}
-                    className="flex items-center gap-2 rounded-2xl bg-white/10 px-6 py-3 font-semibold text-white transition-colors hover:bg-white/20 active:scale-95 disabled:opacity-50"
+                    className="flex lg:ml-auto w-full sm:w-auto justify-center items-center gap-2 rounded-2xl bg-white/10 px-6 py-3 min-w-[140px] font-semibold text-white transition-colors hover:bg-white/20 active:scale-95 disabled:opacity-50"
                   >
                     <RefreshCw
                       size={20}
                       className={cn(isRefreshing && "animate-spin")}
                     />
-                    Perbarui
+                    <span className="lg:hidden xl:inline">Perbarui</span>
                   </button>
                 </div>
               </div>
             </section>
-            <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-              <div className="space-y-8 lg:col-span-2">
+            <div className="grid grid-cols-1 gap-6 sm:gap-8 xl:grid-cols-12 md:max-xl:grid-cols-2">
+              <div className="space-y-6 sm:space-y-8 xl:col-span-8 md:max-xl:col-span-1">
                 <Card
                   title="News"
                   icon={<Newspaper size={20} className="text-orange-500" />}
@@ -912,7 +982,7 @@ export default function App() {
                   </div>
                 </Card>
               </div>
-              <div className="space-y-8">
+              <div className="space-y-6 sm:space-y-8 xl:col-span-4 md:max-xl:col-span-1">
                 <Card
                   title="Sektor Impact"
                   icon={<PieChart size={20} className="text-purple-500" />}
@@ -929,85 +999,162 @@ export default function App() {
                   }
                 >
                   <div className="space-y-4 pt-4">
-                    {sectorScores.map((sector, i) => (
-                      <motion.div
-                        key={i}
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        transition={{
-                          type: "spring",
-                          stiffness: 400,
-                          damping: 10,
-                        }}
-                        className={cn(
-                          "group flex flex-col rounded-xl p-3 transition-colors border",
-                          sector.outlook === "Buy"
-                            ? "bg-green-50/50 border-green-200 dark:bg-green-900/10 dark:border-green-800/30"
-                            : sector.outlook === "Sell"
-                              ? "bg-red-50/50 border-red-200 dark:bg-red-900/10 dark:border-red-800/30"
-                              : "bg-neutral-50 border-neutral-200 dark:bg-neutral-800/50 dark:border-neutral-700/50",
-                        )}
-                      >
-                        <div className="flex cursor-pointer items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div
-                              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-transform group-hover:rotate-6"
-                              style={{
-                                backgroundColor: sector.color + "20",
-                                color: sector.color,
-                              }}
-                            >
-                              {getIcon(sector.icon)}
-                            </div>
-                            <div>
-                              <span className="font-bold tracking-tight text-xs sm:text-sm">
-                                {sector.name}
-                              </span>
-                              <div className="flex items-center gap-2 mt-0.5">
-                                <span
-                                  className={cn(
-                                    "text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md",
-                                    sector.outlook === "Buy"
-                                      ? "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400"
-                                      : sector.outlook === "Sell"
-                                        ? "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400"
-                                        : "bg-neutral-200 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-400",
-                                  )}
-                                >
-                                  {sector.outlook}
-                                </span>
-                                <span className="text-[10px] font-bold text-neutral-500">
-                                  {sector.probability} Score
-                                </span>
-                                {sector.volume !== undefined &&
-                                  sector.volume > 0 && (
-                                    <span className="text-[10px] font-bold text-blue-500 bg-blue-50 dark:bg-blue-900/10 px-1.5 py-0.5 rounded-md">
-                                      Vol:{" "}
-                                      {sector.volume >= 1e9
-                                        ? (sector.volume / 1e9).toFixed(2) + "B"
-                                        : (sector.volume / 1e6).toFixed(2) +
-                                          "M"}
+                    {sectorScores.map((sector, i) => {
+                      const nameSplit = sector.name.split(" (");
+                      const titleMain = nameSplit[0];
+                      const titleSub = nameSplit.length > 1 ? nameSplit[1].replace(")", "") : sector.code;
+                      const isPositive = (sector.marketChangePercent || 0) >= 0;
+                      const isAiPositive = sector.outlook === "Buy";
+                      const isAiNegative = sector.outlook === "Sell";
+                      
+                      return (
+                        <motion.div
+                          layout
+                          key={sector.name}
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                          transition={{
+                            type: "spring",
+                            stiffness: 400,
+                            damping: 10,
+                          }}
+                          className={cn(
+                            "w-full bg-white/80 dark:bg-slate-900/70 backdrop-blur-md rounded-[1.5rem] relative overflow-hidden shadow-sm mt-3 first:mt-0 border",
+                            isAiPositive ? "border-emerald-100 dark:border-emerald-500/20" :
+                            isAiNegative ? "border-red-100 dark:border-rose-500/20" :
+                            "border-neutral-200 dark:border-white/10 dark:border-t-white/20"
+                          )}
+                        >
+                          <motion.div
+                            animate={{ opacity: [0.4, 0.8, 0.4] }}
+                            transition={{ 
+                              duration: isAiNegative ? 2 : isAiPositive ? 3 : 4, 
+                              repeat: Infinity, 
+                              ease: "easeInOut" 
+                            }}
+                            className={cn(
+                              "absolute inset-0 pointer-events-none",
+                              isAiPositive ? "bg-gradient-to-b from-emerald-400/10 to-transparent shadow-[inset_0_0_20px_rgba(16,185,129,0.03)] dark:from-emerald-500/10 dark:shadow-[inset_0_0_20px_rgba(16,185,129,0.05)]" :
+                              isAiNegative ? "bg-gradient-to-b from-rose-500/10 to-transparent shadow-[inset_0_0_20px_rgba(225,29,72,0.05)] dark:from-rose-600/15 dark:via-rose-900/5 dark:to-transparent dark:shadow-[inset_0_0_30px_rgba(225,29,72,0.15)]" :
+                              "bg-gradient-to-b from-slate-200/50 to-transparent dark:from-white/5 dark:shadow-[inset_0_0_15px_rgba(255,255,255,0.02)]"
+                            )}
+                          />
+                          <div className="relative p-3 pb-2 sm:p-4 sm:pb-3 z-10">
+                            <div className="flex justify-between items-start gap-2">
+                              
+                              <div className="flex gap-2 sm:gap-3 items-center flex-1 min-w-0">
+                                <div className="w-8 h-8 sm:w-10 sm:h-10 shrink-0 rounded-xl bg-neutral-100 dark:bg-slate-800/80 flex items-center justify-center border border-neutral-200 dark:border-slate-700/50 shadow-inner">
+                                  <div className="text-neutral-500 dark:text-slate-300 w-4 h-4 sm:w-5 sm:h-5 flex items-center justify-center">
+                                    {getIcon(sector.icon)}
+                                  </div>
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <h2 className="text-neutral-900 dark:text-white font-bold text-xs sm:text-sm leading-tight break-words">{titleMain}</h2>
+                                  <p className="text-neutral-500 dark:text-slate-500 text-[9px] sm:text-[10px] font-medium mt-0.5 break-words">{titleSub}</p>
+                                </div>
+                              </div>
+
+                              <div className="flex flex-col items-end gap-1.5 shrink-0">
+                                
+                                <div className="flex items-stretch rounded-full border border-neutral-200 dark:border-slate-700/50 overflow-hidden bg-white dark:bg-slate-900 shadow-sm">
+                                  <div className={cn("flex items-center gap-1 px-1.5 py-0.5", 
+                                    isAiPositive ? "bg-gradient-to-r from-emerald-400 to-teal-500" : 
+                                    isAiNegative ? "bg-gradient-to-r from-red-400 to-rose-500" : 
+                                    "bg-gradient-to-r from-neutral-300 to-neutral-400 dark:from-neutral-600 dark:to-neutral-700"
+                                  )}>
+                                    <span className={cn("text-[8px] font-black tracking-widest mt-px", 
+                                      isAiPositive || isAiNegative ? "text-slate-900" : "text-neutral-700 dark:text-white"
+                                    )}>
+                                      {sector.outlook.toUpperCase()}
                                     </span>
-                                  )}
+                                  </div>
+                                  <div className="flex items-center px-1.5 py-0.5">
+                                    <motion.span 
+                                      key={`prob-${sector.probability}`}
+                                      initial={{ opacity: 0, scale: 0.9 }}
+                                      animate={{ opacity: 1, scale: 1 }}
+                                      className="text-neutral-800 dark:text-white font-extrabold text-[10px]"
+                                    >
+                                      {sector.probability.toFixed(2)}
+                                    </motion.span>
+                                  </div>
+                                </div>
+
+                                <div className="bg-neutral-50 border border-neutral-200 dark:bg-slate-800/40 dark:border-slate-700/40 rounded-md p-1.5 flex gap-2 items-center">
+                                  <div className="flex flex-col border-r border-neutral-200 dark:border-slate-700/50 pr-2">
+                                    <span className="text-neutral-400 dark:text-slate-500 text-[6px] sm:text-[7px] font-bold uppercase tracking-tighter">Prev</span>
+                                    <motion.span 
+                                      key={`prev-${sector.prevPrice}`}
+                                      initial={{ opacity: 0, scale: 0.9 }}
+                                      animate={{ opacity: 1, scale: 1 }}
+                                      className="text-neutral-600 dark:text-slate-300 font-bold text-[9px]"
+                                    >
+                                      {sector.prevPrice > 0 ? sector.prevPrice.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
+                                    </motion.span>
+                                  </div>
+                                  <div className="flex flex-col">
+                                    <span className="text-neutral-400 dark:text-slate-500 text-[6px] sm:text-[7px] font-bold uppercase tracking-tighter">Chg</span>
+                                    <motion.span 
+                                      key={`chg-${sector.marketChangePercent}`}
+                                      initial={{ opacity: 0, scale: 0.9 }}
+                                      animate={{ opacity: 1, scale: 1 }}
+                                      className={cn("font-bold text-[9px] flex items-center gap-0.5", 
+                                        isPositive ? "text-emerald-500 dark:text-emerald-400" : "text-red-500 dark:text-red-400"
+                                      )}
+                                    >
+                                      {isPositive ? "+" : ""}{(sector.marketChangePercent || 0).toFixed(2)}%
+                                      {sector.marketChangePercent !== 0 && (
+                                      <svg className="w-2 h-2" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d={isPositive ? "M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" : "M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 12.586V5a1 1 0 112 0v7.586l2.293-2.293a1 1 0 011.414 0z"} clipRule="evenodd"></path>
+                                      </svg>
+                                      )}
+                                    </motion.span>
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           </div>
-                          <span
-                            className={cn(
-                              "text-sm font-bold bg-white dark:bg-neutral-900 px-2 py-1 rounded-lg border border-neutral-100 dark:border-neutral-800 shadow-sm shrink-0",
-                              sector.change > 0
-                                ? "text-green-500"
-                                : sector.change < 0
-                                  ? "text-red-500"
-                                  : "text-neutral-500",
-                            )}
-                          >
-                            {sector.change > 0 ? "+" : ""}
-                            {sector.change}
-                          </span>
-                        </div>
-                      </motion.div>
-                    ))}
+
+                          <div className={cn("relative z-10 mx-2 mb-2 sm:mx-3 sm:mb-3 p-2 sm:px-3 rounded-lg border", 
+                            isPositive ? "bg-emerald-50 dark:bg-emerald-500/5 border-emerald-200 dark:border-emerald-500/20" : 
+                            "bg-red-50 dark:bg-red-500/5 border-red-200 dark:border-red-500/20"
+                          )}>
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <h3 className="text-neutral-500 dark:text-slate-500 text-[8px] sm:text-[9px] font-bold uppercase tracking-widest mb-0.5">Market Index</h3>
+                                <p className="text-neutral-800 dark:text-slate-200 font-bold text-[10px] sm:text-xs">{sector.marketIndex || titleMain}</p>
+                              </div>
+                              
+                              <div className="text-right">
+                                <motion.div 
+                                  key={`price-${sector.price}`}
+                                  initial={{ opacity: 0, scale: 0.9 }}
+                                  animate={{ opacity: 1, scale: 1 }}
+                                  className="text-neutral-900 dark:text-white font-bold text-sm"
+                                >
+                                  {sector.price > 0 ? sector.price.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
+                                </motion.div>
+                                <motion.div 
+                                  key={`val-${sector.marketChangeValue}`}
+                                  initial={{ opacity: 0, scale: 0.9 }}
+                                  animate={{ opacity: 1, scale: 1 }}
+                                  className={cn("flex items-center justify-end font-bold text-[10px] mt-0.5", 
+                                    isPositive ? "text-emerald-600 dark:text-emerald-400" : "text-red-500 dark:text-red-500"
+                                  )}
+                                >
+                                  {sector.marketChangePercent !== 0 && (
+                                  <svg className="w-2.5 h-2.5 mr-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d={isPositive ? "M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" : "M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 12.586V5a1 1 0 112 0v7.586l2.293-2.293a1 1 0 011.414 0z"} clipRule="evenodd"></path>
+                                  </svg>
+                                  )}
+                                  {isPositive ? "+" : ""}{(sector.marketChangeValue || 0).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({(sector.marketChangePercent || 0).toFixed(2)}%)
+                                </motion.div>
+                              </div>
+                            </div>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
                   </div>
                 </Card>
 
@@ -1215,8 +1362,8 @@ export default function App() {
 
         {activeTab === "Rekomendasi Saham" && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-              <div className="space-y-8 lg:col-span-2">
+            <div className="grid grid-cols-1 gap-6 sm:gap-8 xl:grid-cols-12 md:max-xl:grid-cols-2">
+              <div className="space-y-6 sm:space-y-8 xl:col-span-8 md:max-xl:col-span-1">
                 <Card
                   title="Grafik IHSG"
                   icon={<BarChart3 size={20} className="text-blue-500" />}
@@ -1225,7 +1372,7 @@ export default function App() {
                     <AdvancedRealTimeChart
                       symbol="IDX:COMPOSITE"
                       theme="dark"
-                      interval="D"
+                      interval="240"
                       autosize
                       allow_symbol_change={false}
                       hide_side_toolbar={true}
@@ -1279,7 +1426,7 @@ export default function App() {
                   </div>
                 </Card>
               </div>
-              <div className="space-y-8">
+              <div className="space-y-6 sm:space-y-8 xl:col-span-4 md:max-xl:col-span-1">
                 <Card
                   title="Rekomendasi Saham"
                   icon={<ShieldCheck size={20} className="text-green-500" />}
@@ -1443,7 +1590,7 @@ function Card({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
       className={cn(
-        "relative overflow-hidden rounded-[2.5rem] border border-neutral-100 bg-white p-6 shadow-sm ring-1 ring-black/5 dark:border-neutral-800 dark:bg-neutral-900/40 dark:ring-white/5",
+        "relative overflow-hidden rounded-[2rem] sm:rounded-[2.5rem] border border-neutral-100 bg-white p-5 sm:p-6 lg:p-8 shadow-sm ring-1 ring-black/5 dark:border-neutral-800 dark:bg-neutral-900/40 dark:ring-white/5",
         className,
       )}
     >
@@ -1521,7 +1668,7 @@ function StockDetailModal({
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="relative flex w-full max-w-4xl max-h-[90vh] flex-col overflow-hidden rounded-[2.5rem] bg-white shadow-2xl dark:bg-neutral-900"
+        className="relative flex w-full max-w-4xl max-h-[90vh] flex-col overflow-hidden rounded-[2rem] sm:rounded-[2.5rem] bg-white shadow-2xl dark:bg-neutral-900"
       >
         <div className="absolute top-6 right-6 z-10 rounded-full bg-white/50 backdrop-blur-sm dark:bg-neutral-900/50">
           <button
@@ -1854,7 +2001,7 @@ function NewsDetailModal({
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="relative w-full max-w-2xl overflow-hidden rounded-[2.5rem] bg-white shadow-2xl dark:bg-neutral-900 max-h-[90vh] flex flex-col"
+        className="relative w-full max-w-2xl overflow-hidden rounded-[2rem] sm:rounded-[2.5rem] bg-white shadow-2xl dark:bg-neutral-900 max-h-[90vh] flex flex-col"
       >
         <div className="absolute top-6 right-6 z-10">
           <button
@@ -1866,7 +2013,7 @@ function NewsDetailModal({
         </div>
 
         <div
-          className="p-8 lg:p-12 overflow-y-auto"
+          className="p-6 sm:p-8 lg:p-12 overflow-y-auto"
           style={{
             scrollbarWidth: "thin",
             scrollbarColor: "#d4d4d8 transparent",
