@@ -296,16 +296,14 @@ async function startServer() {
 
   app.get('/api/quote/:symbol', async (req, res) => {
     try {
-      const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${req.params.symbol}.JK`);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
+      const symbol = `${req.params.symbol.toUpperCase()}.JK`;
+      const quote = await yahooFinance.quote(symbol);
       
-      const meta = data.chart?.result?.[0]?.meta;
-      if (meta) {
+      if (quote && quote.regularMarketPrice) {
         res.json({
-          price: meta.regularMarketPrice,
-          previousClose: meta.previousClose,
-          symbol: meta.symbol,
+          price: quote.regularMarketPrice,
+          previousClose: quote.regularMarketPreviousClose,
+          symbol: quote.symbol,
         });
       } else {
         res.status(404).json({ error: 'Data not found' });

@@ -33,6 +33,20 @@ import {
   Globe2,
   Users,
   Clock,
+  Briefcase,
+  Wallet,
+  Plus,
+  Trash2,
+  Pencil,
+  Sparkles,
+  Eye,
+  EyeOff,
+  Target,
+  ShieldAlert,
+  Scissors,
+  Lock,
+  User,
+  X,
 } from "lucide-react";
 import {
   AreaChart,
@@ -54,6 +68,7 @@ import {
   RecommendedStock,
   NewsItem,
   CorporateEvent,
+  Trade,
 } from "./types";
 import {
   SymbolOverview,
@@ -90,6 +105,16 @@ const MOCK_CORPORATE_EVENTS: CorporateEvent[] = [
     date: "25 Mei 2026",
     desc: "Cum Date dividen tunai tahun buku 2025.",
   },
+];
+
+const MOCK_HISTORICAL_FEAR_GREED = [
+  { date: '10 Mei', value: 42 },
+  { date: '11 Mei', value: 45 },
+  { date: '12 Mei', value: 38 },
+  { date: '13 Mei', value: 35 },
+  { date: '14 Mei', value: 48 },
+  { date: '15 Mei', value: 52 },
+  { date: '16 Mei', value: 64 },
 ];
 
 const MOCK_MARKET_DATA: MarketData = {
@@ -307,6 +332,8 @@ export default function App() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRefreshingNews, setIsRefreshingNews] = useState(false);
   const [macroRefreshKey, setMacroRefreshKey] = useState(0);
+  const [isScrolled, setIsScrolled] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());
   const [sectorMarketData, setSectorMarketData] = useState<
     Record<string, { volume: number; changePercent: number; price: number }>
   >({});
@@ -318,9 +345,133 @@ export default function App() {
   );
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
 
+  const [trades, setTrades] = useState<Trade[]>([
+    {
+      id: "t1",
+      symbol: "BBCA",
+      entryPrice: 9850,
+      quantity: 1000,
+      date: "2026-05-10",
+      type: "BUY",
+      status: "OPEN",
+      marketCategory: "IDX",
+      notes: "Entry on support level",
+      plannedEntryPrice: 9850,
+      plannedStopLoss: 9700,
+      plannedTakeProfit: 10500,
+    },
+    {
+      id: "t2",
+      symbol: "GOTO",
+      entryPrice: 65,
+      quantity: 50000,
+      date: "2026-05-12",
+      type: "BUY",
+      status: "OPEN",
+      marketCategory: "IDX",
+      notes: "Speculative buy on earnings",
+      plannedEntryPrice: 65,
+      plannedStopLoss: 60,
+      plannedTakeProfit: 80,
+    }
+  ]);
+
+  const [isTradeModalOpen, setIsTradeModalOpen] = useState(false);
+  const [isMarketSelectorOpen, setIsMarketSelectorOpen] = useState(false);
+  const [pendingMarketCategory, setPendingMarketCategory] = useState<'IDX' | 'CRYPTO' | 'CFD' | null>(null);
+  const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
+  const [viewingTrade, setViewingTrade] = useState<Trade | null>(null);
+  const [isBalanceHidden, setIsBalanceHidden] = useState(false);
+  const [activeMarketFilter, setActiveMarketFilter] = useState<'IDX' | 'CRYPTO' | 'CFD'>('IDX');
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [totalCapital, setTotalCapital] = useState(100000000);
+
   const [stocks, setStocks] = useState<RecommendedStock[]>(
     INITIAL_RECOMMENDED_STOCKS,
   );
+
+  // --- Portfolio Calculations ---
+  const portfolioStats = useMemo(() => {
+    if (trades.length === 0) {
+      return { totalInvested: 0, totalPL: 0, totalPLPercent: 0, winRate: 0, avgProfit: 0, avgLoss: 0, currentBalance: totalCapital, buyingPower: totalCapital };
+    }
+
+    let totalInvested = 0;
+    let totalCurrentValue = 0;
+    let winningTrades = 0;
+    let profits: number[] = [];
+    let losses: number[] = [];
+
+    trades.forEach(trade => {
+      const investment = trade.entryPrice * trade.quantity;
+      totalInvested += investment;
+
+      // Find current price from stocks list or simulate a minor variation
+      const currentStock = stocks.find(s => s.symbol === trade.symbol);
+      const currentPrice = currentStock ? currentStock.price : trade.entryPrice * 1.02; // +2% for mock/unknown
+      
+      const currentValue = currentPrice * trade.quantity;
+      totalCurrentValue += currentValue;
+
+      const plPercent = ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100;
+      
+      if (plPercent > 0) {
+        winningTrades++;
+        profits.push(plPercent);
+      } else if (plPercent < 0) {
+        losses.push(plPercent);
+      }
+    });
+
+    const totalPL = totalCurrentValue - totalInvested;
+    const totalPLPercent = totalInvested > 0 ? (totalPL / totalInvested) * 100 : 0;
+    const winRate = (winningTrades / trades.length) * 100;
+    const avgProfit = profits.length > 0 ? profits.reduce((a, b) => a + b, 0) / profits.length : 0;
+    const avgLoss = losses.length > 0 ? Math.abs(losses.reduce((a, b) => a + b, 0) / losses.length) : 0;
+
+    const currentBalance = totalCapital + totalPL;
+    const buyingPower = totalCapital - totalInvested;
+
+    return { totalInvested, totalPL, totalPLPercent, winRate, avgProfit, avgLoss, currentBalance, buyingPower };
+  }, [trades, stocks, totalCapital]);
+
+  const handleEditTrade = (trade: Trade) => {
+    setEditingTrade(trade);
+    setIsTradeModalOpen(true);
+  };
+
+  const handleAddTrade = () => {
+    setIsMarketSelectorOpen(true);
+  };
+
+  const handleMarketSelected = (cat: 'IDX' | 'CRYPTO' | 'CFD') => {
+    setPendingMarketCategory(cat);
+    setEditingTrade(null);
+    setIsMarketSelectorOpen(false);
+    setIsTradeModalOpen(true);
+  };
+
+  const handleSaveTrade = (tradeData: Partial<Trade>) => {
+    if (editingTrade) {
+      setTrades(trades.map(t => t.id === editingTrade.id ? { ...t, ...tradeData } as Trade : t));
+    } else {
+      const newTrade: Trade = {
+        ...tradeData,
+        id: `t${Date.now()}`,
+        symbol: tradeData.symbol || "",
+        entryPrice: tradeData.entryPrice || 0,
+        quantity: tradeData.quantity || 0,
+        date: tradeData.date || new Date().toISOString().split('T')[0],
+        type: tradeData.type || 'BUY',
+        status: tradeData.status || 'OPEN',
+        marketCategory: tradeData.marketCategory || 'IDX',
+        notes: tradeData.notes || "",
+      } as Trade;
+      setTrades([newTrade, ...trades]);
+    }
+    setIsTradeModalOpen(false);
+  };
+
   const [newsData, setNewsData] = useState<NewsItem[]>(MOCK_NEWS_DATA);
   const [tickerData, setTickerData] = useState<any[]>([]);
   const [selectedSector, setSelectedSector] = useState("Semua");
@@ -457,9 +608,8 @@ export default function App() {
     if (selectedNewsType !== "Semua") {
       filtered = filtered.filter((n) => n.sourceType === selectedNewsType);
     }
-    // They are already sorted chronologically by the backend (by pubDate).
-    // We maintain that order rather than sorting by impact score.
-    return filtered;
+    // Sort by impact score descending to show highest impact news first
+    return filtered.sort((a, b) => (b.impactScore || 0) - (a.impactScore || 0));
   }, [newsData, selectedNewsType]);
 
   useEffect(() => {
@@ -527,10 +677,10 @@ export default function App() {
     fgColor = "text-green-400";
   } else if (fearGreedIndex <= 25) {
     fgLabel = "Extreme Fear";
-    fgColor = "text-red-500";
+    fgColor = "text-[var(--color-perf-down)]";
   } else if (fearGreedIndex <= 45) {
     fgLabel = "Fear";
-    fgColor = "text-orange-500";
+    fgColor = "text-orange-400";
   }
 
   const filteredStocks = useMemo(() => {
@@ -597,6 +747,13 @@ export default function App() {
   };
 
   useEffect(() => {
+    // Scroll handling
+    const handleScroll = () => setIsScrolled(window.scrollY > 30);
+    window.addEventListener('scroll', handleScroll);
+
+    // Timer
+    const timerId = setInterval(() => setCurrentTime(new Date()), 1000);
+
     // Try to fetch on mount
     fetchLivePrices();
     fetchNews();
@@ -610,7 +767,11 @@ export default function App() {
       fetchLivePrices();
     }, 10000);
 
-    return () => clearInterval(intervalId);
+    return () => {
+       clearInterval(intervalId);
+       clearInterval(timerId);
+       window.removeEventListener('scroll', handleScroll);
+    };
   }, []);
 
   const fetchNews = async () => {
@@ -637,7 +798,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-neutral-50 font-sans text-neutral-900 selection:bg-blue-100 dark:bg-neutral-950 dark:text-neutral-100">
+    <div className="min-h-screen bg-[var(--color-bg-news)] font-sans text-[var(--color-text-main)] selection:bg-[var(--color-gold)] selection:text-black">
       {/* Detail Modal Overlay */}
       <AnimatePresence>
         {selectedStock && (
@@ -652,157 +813,248 @@ export default function App() {
             onClose={() => setSelectedNews(null)}
           />
         )}
+        {viewingTrade && (
+          <TradeDetailModal
+            trade={viewingTrade}
+            totalCapital={totalCapital}
+            onClose={() => setViewingTrade(null)}
+            onEdit={() => {
+              setViewingTrade(null);
+              handleEditTrade(viewingTrade);
+            }}
+            onClosePosition={(price) => {
+              setTrades(trades.map(t => 
+                t.id === viewingTrade.id 
+                  ? { ...t, status: 'CLOSED', exitPrice: price, actualExitPrice: price } 
+                  : t
+              ));
+              setViewingTrade(null);
+            }}
+            onAverage={(newAvgPrice, newTotalQuantity) => {
+              const updatedTrade = { ...viewingTrade, entryPrice: newAvgPrice, quantity: newTotalQuantity };
+              setTrades(trades.map(t =>
+                t.id === viewingTrade.id
+                  ? updatedTrade
+                  : t
+              ));
+              setViewingTrade(updatedTrade);
+            }}
+            onUpdatePlan={(tp, sl) => {
+              const updatedTrade = { ...viewingTrade, plannedTakeProfit: tp, plannedStopLoss: sl };
+              setTrades(trades.map(t =>
+                t.id === viewingTrade.id
+                  ? updatedTrade
+                  : t
+              ));
+              setViewingTrade(updatedTrade);
+            }}
+          />
+        )}
+        {isTradeModalOpen && (
+          <TradeModal
+            trade={editingTrade}
+            defaultMarket={pendingMarketCategory ?? undefined}
+            totalCapital={totalCapital}
+            onClose={() => setIsTradeModalOpen(false)}
+            onSave={handleSaveTrade}
+          />
+        )}
+        {isMarketSelectorOpen && (
+          <MarketSelectorModal
+             onClose={() => setIsMarketSelectorOpen(false)}
+             onSelect={(cat) => handleMarketSelected(cat)}
+          />
+        )}
       </AnimatePresence>
 
-      {/* Header */}
-      <header className="z-50 border-b border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-500/20">
-              <TrendingUp size={24} />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold tracking-tight">
-                Research CNHL
-              </h1>
-              <p className="hidden text-xs text-neutral-500 sm:block dark:text-neutral-400">
-                Insight Pasar Saham Indonesia
-              </p>
-            </div>
+      {/* Header Container */}
+      <header
+        className={cn(
+          "w-full sticky top-0 z-50 transition-all duration-400 ease-in-out border-b border-[#222222]",
+          isScrolled ? "bg-[rgba(5,5,5,0.95)] backdrop-blur-md shadow-[0_10px_30px_rgba(0,0,0,0.9)]" : "bg-[#141414]"
+        )}
+      >
+        {/* Top Bar (Ticker + Date) */}
+        <div className={cn(
+          "flex items-center px-4 sm:px-8 text-[11px] font-bold tracking-[1.5px] uppercase transition-all duration-400 overflow-hidden",
+          isScrolled ? "bg-transparent border-b-transparent py-2" : "bg-[#000000] border-b border-[#222222] py-2",
+        )}>
+          <div className="text-[#888888] shrink-0 pr-5 border-r border-[#333] mr-5 hidden sm:flex gap-1.5 items-center">
+            <span>{currentTime.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}</span> |
+            <span className="text-white">{currentTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/\./g, ':')} WIB</span>
           </div>
 
-          <div className="flex items-center gap-4">
-            <button className="hidden rounded-full p-2 text-neutral-500 hover:bg-neutral-100 lg:block dark:text-neutral-400 dark:hover:bg-neutral-900">
-              <Search size={20} />
-            </button>
-            <button className="relative rounded-full p-2 text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-900">
-              <Bell size={20} />
-              <span className="absolute top-2 right-2 flex h-2 w-2 rounded-full bg-red-500 ring-2 ring-white dark:ring-neutral-950"></span>
-            </button>
-            <div className="h-8 w-px bg-neutral-200 dark:bg-neutral-800"></div>
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 overflow-hidden rounded-full bg-neutral-200 ring-2 ring-blue-500/10">
-                <img
-                  src="https://api.dicebear.com/7.x/avataaars/svg?seed=Investor1"
-                  alt="User Avatar"
-                  referrerPolicy="no-referrer"
-                />
+          {/* Ticker */}
+          <div className="flex-1 overflow-hidden whitespace-nowrap flex items-center">
+             {tickerData && tickerData.length > 0 ? (
+               <div className="flex whitespace-nowrap items-center animate-[marquee_80s_linear_infinite] hover:[animation-play-state:paused]">
+                 {[...tickerData, ...tickerData, ...tickerData, ...tickerData].map((item, i) => (
+                    <div key={i} className="inline-flex items-center px-5 font-bold text-[#aaaaaa]">
+                       {item.label} <span className="ml-1.5 text-white">{item.value}</span>
+                       {item.change !== 0 && (
+                         <span className={cn("ml-1.5 font-bold text-[13px]", item.change > 0 ? "text-[#00ea60]" : "text-[#ff3b3b]")}>
+                            {item.change > 0 ? '▲' : '▼'} {Math.abs(item.change).toFixed(2)}%
+                         </span>
+                       )}
+                    </div>
+                 ))}
               </div>
-              <span className="hidden text-sm font-medium lg:block">
-                C. Novan
-              </span>
-            </div>
+             ) : (
+                <div className="text-[#aaaaaa] p-2">Memuat ticker...</div>
+             )}
+          </div>
+        </div>
+
+        {/* Main Bar (Logo, Nav, Actions) */}
+        <div
+          className={cn(
+            "flex justify-between items-center px-4 sm:px-8 mx-auto max-w-[1440px] transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden",
+            isScrolled ? "h-0 opacity-0 pointer-events-none border-b-transparent" : "h-[80px] opacity-100 border-b border-[#2a2a2a]"
+          )}
+        >
+          {/* Logo */}
+          <a href="#" className="font-heading text-[22px] sm:text-[28px] font-extrabold text-white no-underline tracking-tighter flex items-center gap-3">
+             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--color-gold)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"></polygon>
+                <line x1="12" y1="22" x2="12" y2="12"></line>
+                <line x1="22" y1="8.5" x2="12" y2="12"></line>
+                <line x1="2" y1="8.5" x2="12" y2="12"></line>
+             </svg>
+             CNHL RESEARCH<span className="text-[var(--color-gold)]">.</span>
+          </a>
+
+          {/* Nav Pills */}
+          <ul className="hidden md:flex items-center gap-0 bg-[#080808] p-1 rounded-full border border-[#2a2a2a] shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)]">
+            {["Dashboard", "News", "Rekomendasi Saham", "Portfolio"].map((tab) => (
+              <li key={tab} className="m-0">
+                <button
+                  onClick={() => setActiveTab(tab)}
+                  className={cn(
+                    "inline-block px-6 py-2.5 rounded-full text-[10px] font-bold uppercase tracking-[2px] transition-all duration-300",
+                    activeTab === tab 
+                      ? "bg-[#1a1a1a] text-[var(--color-gold)] shadow-[0_2px_8px_rgba(0,0,0,0.8)] border border-[#333]" 
+                      : "text-[#888888] hover:text-white border border-transparent"
+                  )}
+                >
+                  {tab === "Rekomendasi Saham" ? "Trading Plan" : tab}
+                </button>
+              </li>
+            ))}
+          </ul>
+
+          {/* Actions */}
+          <div className="flex items-center gap-5">
+             <button className="text-white hover:text-[var(--color-gold)] transition-transform hover:scale-110">
+               <Search size={18} />
+             </button>
+              <div 
+                onClick={() => setActiveTab("Profile")}
+                className="w-8 h-8 rounded-full bg-[#222] border border-[var(--color-gold)] flex items-center justify-center text-[var(--color-gold)] text-xs font-bold cursor-pointer transition-all hover:scale-110 active:scale-95 shadow-[0_0_15px_rgba(212,175,55,0.2)]"
+              >
+               CJ
+             </div>
           </div>
         </div>
       </header>
 
-      {/* Ticker Tape (Scrolls away with header) */}
-      {tickerData && tickerData.length > 0 && (
-        <div className="w-full bg-[#0a0a0a] border-b border-neutral-800 overflow-hidden flex">
-          <div className="flex whitespace-nowrap py-2 items-center animate-marquee hover:[animation-play-state:paused]">
-             {/* Duplicate the array twice for smooth infinite scrolling */}
-             {[...tickerData, ...tickerData, ...tickerData, ...tickerData].map((item, i) => (
-                <div key={i} className="flex items-center mx-4 gap-2.5">
-                   <span className="text-neutral-400 text-xs font-semibold tracking-wider uppercase">{item.label}</span>
-                   <span className="font-bold text-white text-sm">{item.value}</span>
-                   {item.change !== 0 && (
-                     <span className={cn("text-xs font-bold flex items-center gap-0.5", item.change > 0 ? "text-emerald-400" : "text-red-400")}>
-                        {item.change > 0 ? '▲' : '▼'} {Math.abs(item.change).toFixed(2)}%
-                     </span>
-                   )}
-                </div>
-             ))}
-          </div>
-        </div>
-      )}
-
-      {/* Sticky Navigation Tabs */}
-      <div className="sticky top-0 z-40 w-full border-b border-neutral-200/80 bg-white/80 backdrop-blur-md dark:border-neutral-800/80 dark:bg-neutral-950/80">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div
-            className="flex w-full overflow-x-auto py-2 sm:py-3"
-            style={{ scrollbarWidth: "none" }}
-          >
-            <div className="flex w-full space-x-1 rounded-lg bg-neutral-100/80 p-1 dark:bg-neutral-900/80 shadow-inner">
-              {["Dashboard", "News", "Rekomendasi Saham"].map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={cn(
-                    "whitespace-nowrap flex-1 rounded-md px-4 py-1.5 sm:py-2 text-sm font-semibold transition-all",
-                    activeTab === tab
-                      ? "bg-white text-neutral-900 shadow-sm ring-1 ring-black/5 dark:bg-neutral-800 dark:text-white dark:ring-white/10"
-                      : "text-neutral-500 hover:text-neutral-700 hover:bg-neutral-200/50 dark:text-neutral-400 dark:hover:text-neutral-200 dark:hover:bg-neutral-800/50",
-                  )}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
+      {/* Mobile Nav Pills (Shows only on small screens) */}
+      <div className="md:hidden flex w-full overflow-x-auto py-3 px-4 bg-[#080808] border-b border-[#2a2a2a]" style={{ scrollbarWidth: "none" }}>
+          <ul className="flex items-center gap-3">
+          {["Dashboard", "News", "Rekomendasi Saham", "Portfolio"].map((tab) => (
+            <li key={tab} className="m-0 shrink-0">
+              <button
+                onClick={() => setActiveTab(tab)}
+                className={cn(
+                  "inline-block px-5 py-2.5 rounded-full text-[11px] font-bold uppercase tracking-[1px] transition-all duration-300",
+                  activeTab === tab 
+                    ? "bg-[#1a1a1a] text-[var(--color-gold)] shadow-[0_2px_8px_rgba(0,0,0,0.8)] border border-[#333]" 
+                    : "text-[#888888] bg-[#111] border border-[#222]"
+                )}
+              >
+                {tab === "Rekomendasi Saham" ? "Trading Plan" : tab}
+              </button>
+            </li>
+          ))}
+        </ul>
       </div>
 
-      <main className={cn("mx-auto py-4 sm:py-6", activeTab === "News" ? "w-full px-4 sm:px-6 lg:px-8" : "max-w-7xl px-4 sm:px-6 lg:px-8")}>
+      <main className={cn("mx-auto", activeTab === "News" ? "w-full px-0" : "max-w-[1440px] px-4 sm:px-6 lg:px-8 py-8")}>
         {activeTab === "Dashboard" && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* Market Banner */}
-            <section className="mb-6 sm:mb-8 overflow-hidden rounded-[2rem] bg-neutral-900 p-6 sm:p-8 text-white shadow-2xl transition-all duration-500 hover:shadow-blue-500/10 dark:bg-neutral-900/50">
+            <section className="mb-6 sm:mb-8 overflow-hidden rounded-2xl bg-[#0d0d0d] border border-[#2a2a2a] p-6 sm:p-8 text-white shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-all duration-500">
               <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-center">
                 <div className="space-y-4 w-full lg:w-2/3">
-                  <div className="flex items-center gap-2 text-neutral-400">
-                    <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-orange-500"></span>
-                    <span className="text-xs sm:text-sm font-medium uppercase tracking-wider">
-                      Fear & Greed Index - Saham Indonesia
-                    </span>
-                  </div>
-                  <div className="flex flex-col sm:flex-row sm:items-end gap-6">
-                    <div className="flex items-end gap-3">
+                  <div className="flex flex-col gap-5">
+                    <div className="flex items-center gap-2 text-[#888888]">
+                      <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[var(--color-gold)]"></span>
+                      <span className="text-[11px] font-bold uppercase tracking-[1px]">
+                        Fear & Greed Index - IDX Stocks
+                      </span>
+                    </div>
+
+                    <div className="flex items-baseline gap-3 -mt-1 sm:-mt-2">
                       <span
                         className={cn(
-                          "text-5xl sm:text-6xl font-black tracking-tighter",
+                          "font-mono text-6xl sm:text-5xl font-black tracking-tighter leading-none",
                           fgColor,
                         )}
                       >
                         {fearGreedIndex}
                       </span>
-                      <span className="text-xl sm:text-2xl font-bold text-neutral-300 mb-1.5 sm:mb-2">
+                      <span className="font-heading text-2xl sm:text-xl font-extrabold text-[#e0e0e0] tracking-tight uppercase">
                         {fgLabel}
                       </span>
                     </div>
-                    <div className="w-full sm:w-64 max-w-sm mb-2 sm:mb-3 mt-2 sm:mt-0">
-                      <div className="flex justify-between text-[10px] uppercase font-bold text-neutral-500 mb-2">
-                        <span>Extreme Fear</span>
-                        <span>Extreme Greed</span>
+
+                    <div className="flex flex-col gap-2 w-full sm:max-w-[240px]">
+                      <div className="h-[70px] sm:h-[60px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={MOCK_HISTORICAL_FEAR_GREED} margin={{ top: 5, right: 0, left: 0, bottom: 0 }}>
+                            <defs>
+                              <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="var(--color-gold)" stopOpacity={0.3}/>
+                                <stop offset="95%" stopColor="var(--color-gold)" stopOpacity={0}/>
+                              </linearGradient>
+                            </defs>
+                            <Area 
+                              type="monotone" 
+                              dataKey="value" 
+                              stroke="var(--color-gold)" 
+                              strokeWidth={2}
+                              fillOpacity={1} 
+                              fill="url(#colorValue)" 
+                              isAnimationActive={true}
+                            />
+                            <Tooltip 
+                              contentStyle={{ 
+                                backgroundColor: '#0a0a0a', 
+                                border: '1px solid #333',
+                                borderRadius: '8px',
+                                fontSize: '10px'
+                              }}
+                              itemStyle={{ color: 'var(--color-gold)' }}
+                              labelStyle={{ color: '#888' }}
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
                       </div>
-                      <div
-                        className="h-3 w-full rounded-full overflow-hidden relative"
-                        style={{ background: fgGradient }}
-                      >
-                        <div
-                          className="absolute top-0 w-1.5 h-3 bg-white shadow-sm rounded-full transition-all duration-700 ease-out"
-                          style={{
-                            left: `${fearGreedIndex}%`,
-                            transform: "translateX(-50%)",
-                          }}
-                        ></div>
+                      <div className="flex justify-between text-[9px] sm:text-[8px] text-[#666] font-bold uppercase tracking-[1px] px-1">
+                        <span>7D History</span>
+                        <span>Today</span>
                       </div>
                     </div>
                   </div>
-                  <p className="text-xs sm:text-sm text-neutral-400/80 leading-relaxed max-w-md">
-                    Menunjukkan sentimen dan emosi investor pasar saham saat
-                    ini berdasarkan news live dan pricing changes.
-                  </p>
                 </div>
 
                 <div className="flex gap-4 items-center">
                   <button
                     onClick={handleRefresh}
                     disabled={isRefreshing}
-                    className="flex lg:ml-auto w-full sm:w-auto justify-center items-center gap-2 rounded-2xl bg-white/10 px-6 py-3 min-w-[140px] font-semibold text-white transition-colors hover:bg-white/20 active:scale-95 disabled:opacity-50"
+                    className="flex lg:ml-auto w-full sm:w-auto justify-center items-center gap-2 rounded-xl border border-[rgba(212,175,55,0.3)] bg-[rgba(212,175,55,0.1)] px-6 py-3 min-w-[140px] text-xs font-bold uppercase tracking-[1px] text-[var(--color-gold)] transition-colors hover:bg-[rgba(212,175,55,0.2)] active:scale-95 disabled:opacity-50"
                   >
                     <RefreshCw
-                      size={20}
+                      size={16}
                       className={cn(isRefreshing && "animate-spin")}
                     />
                     <span className="lg:hidden xl:inline">Perbarui</span>
@@ -814,20 +1066,28 @@ export default function App() {
               <div className="space-y-6 sm:space-y-8 xl:col-span-8 md:max-xl:col-span-1">
                 <Card
                   title="News"
-                  icon={<Newspaper size={20} className="text-orange-500" />}
+                  variant="seamless"
+                  icon={<Newspaper size={20} />}
                   headerAction={
                     <div className="flex items-center gap-2">
-                      <button
+                      <motion.button
                         onClick={() => fetchNews()}
                         disabled={isRefreshingNews}
-                        className="flex shrink-0 items-center justify-center p-2 rounded-xl bg-neutral-100 text-neutral-600 transition-colors hover:bg-neutral-200 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
+                        animate={{ 
+                          boxShadow: ["0 0 0px rgba(212,175,55,0)", "0 0 10px rgba(212,175,55,0.4)", "0 0 0px rgba(212,175,55,0)"],
+                          borderColor: ["rgba(212,175,55,0.1)", "rgba(212,175,55,0.5)", "rgba(212,175,55,0.1)"]
+                        }}
+                        transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="flex shrink-0 items-center justify-center p-2 rounded-xl bg-[#111] text-[var(--color-gold)] border border-[var(--color-gold)]/20 transition-all hover:bg-[var(--color-gold)]/10 disabled:opacity-50"
                         title="Muat Ulang"
                       >
                         <RefreshCw
                           size={14}
                           className={cn(isRefreshingNews && "animate-spin")}
                         />
-                      </button>
+                      </motion.button>
                     </div>
                   }
                 >
@@ -859,7 +1119,7 @@ export default function App() {
                       <div className="flex flex-1 flex-col items-center justify-center space-y-4 text-neutral-400">
                         <RefreshCw
                           size={32}
-                          className="animate-spin text-orange-500"
+                          className="animate-spin text-[var(--color-gold)]"
                         />
                         <p className="animate-pulse text-sm font-semibold tracking-wider">
                           Memuat berita terbaru...
@@ -874,107 +1134,124 @@ export default function App() {
                         }}
                       >
                         {filteredNewsList
-                          .slice(0, activeTab === "News" ? 7 : 7)
+                          .slice(0, 7)
                           .map((news) => {
                             const score = news.impactScore || 0;
-                            let scoreColor =
-                              "text-neutral-500 bg-neutral-100 dark:bg-neutral-800 border bg-neutral-200";
-                            if (score >= 80)
-                              scoreColor =
-                                "text-green-700 bg-green-100 border-green-200 dark:bg-green-900/30 dark:border-green-800 dark:text-green-400";
-                            else if (score < 50)
-                              scoreColor =
-                                "text-red-700 bg-red-100 border-red-200 dark:bg-red-900/30 dark:border-red-800 dark:text-red-400";
-                            else
-                              scoreColor =
-                                "text-yellow-700 bg-yellow-100 border-yellow-200 dark:bg-yellow-900/30 dark:border-yellow-800 dark:text-yellow-400";
-
-                            let badgeColors =
-                              "bg-neutral-50 border-neutral-200 text-neutral-600 dark:bg-neutral-900/50 dark:border-neutral-800 dark:text-neutral-400";
-                            if (news.impactType === "Makro")
-                              badgeColors =
-                                "bg-blue-50/50 border-blue-200 text-blue-800 dark:bg-blue-900/10 dark:border-blue-800/50 dark:text-blue-300";
-                            if (news.impactType === "Sektoral")
-                              badgeColors =
-                                "bg-purple-50/50 border-purple-200 text-purple-800 dark:bg-purple-900/10 dark:border-purple-800/50 dark:text-purple-300";
-                            if (news.impactType === "Emiten")
-                              badgeColors =
-                                "bg-orange-50/50 border-orange-200 text-orange-800 dark:bg-orange-900/10 dark:border-orange-800/50 dark:text-orange-300";
+                            let scoreColor = "text-[#666]";
+                            let impactHoverBg = "hover:bg-[#111]";
+                            let impactBg = "bg-transparent";
+                            let impactBorderColor = "border-transparent";
+                            
+                            if (score >= 80) {
+                              scoreColor = "text-blue-400 font-black";
+                              impactHoverBg = "hover:bg-[rgba(59,130,246,0.2)]";
+                              impactBg = "bg-[#0c121e] shadow-[0_4px_20px_rgba(0,0,0,0.5)]";
+                              impactBorderColor = "border-blue-500";
+                            } else if (score < 50) {
+                              scoreColor = "text-[var(--color-perf-down)] font-black";
+                              impactHoverBg = "hover:bg-[rgba(255,59,59,0.2)]";
+                              impactBg = "bg-[#1a0c0c] shadow-[0_4px_20px_rgba(0,0,0,0.5)]";
+                              impactBorderColor = "border-[var(--color-perf-down)]";
+                            } else {
+                              scoreColor = "text-[#888] font-black";
+                              impactHoverBg = "hover:bg-[#151515]";
+                              impactBg = "bg-[#0a0a0a] shadow-[0_4px_20px_rgba(0,0,0,0.5)]";
+                              impactBorderColor = "border-transparent";
+                            }
 
                             return (
                               <motion.div
                                 key={news.id}
-                                whileHover={{ scale: 1.01 }}
+                                whileHover={{ scale: 1.015, x: 2 }}
+                                whileTap={{ scale: 0.98 }}
                                 onClick={() => setSelectedNews(news)}
                                 className={cn(
-                                  "group flex cursor-pointer flex-col gap-3 p-4 rounded-xl transition-all border shadow-sm hover:shadow-md",
-                                  badgeColors,
+                                  "group flex cursor-pointer flex-col gap-3 py-4 rounded-lg border-b border-[rgba(255,255,255,0.05)] transition-all px-4 mb-2 ml-1",
+                                  score >= 50 && score < 80 ? "border-l-0" : "border-l-4",
+                                  impactBg,
+                                  impactHoverBg,
+                                  impactBorderColor
                                 )}
                               >
-                                <div className="flex flex-wrap items-center justify-between gap-2">
-                                  <div className="flex items-center gap-2">
-                                    <span
-                                      className={cn(
-                                        "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border",
-                                        news.sourceType === "Otoritas"
-                                          ? "bg-blue-100 border-blue-200 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 dark:border-blue-800"
-                                          : news.sourceType === "Media Lokal"
-                                            ? "bg-emerald-100 border-emerald-200 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300 dark:border-emerald-800"
-                                            : news.sourceType === "Media Global"
-                                              ? "bg-purple-100 border-purple-200 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300 dark:border-purple-800"
-                                              : "bg-orange-100 border-orange-200 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300 dark:border-orange-800",
-                                      )}
-                                    >
-                                      {news.sourceType || "Berita"}
-                                    </span>
-                                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-white dark:bg-neutral-900 shadow-sm opacity-80">
-                                      {news.impactType}
-                                    </span>
+                                  <div className="flex flex-wrap items-center justify-between gap-2 overflow-hidden">
+                                    <div className="flex items-center gap-2 px-2 py-1 rounded bg-[#080808] border border-emerald-500/10 shadow-inner">
+                                       <div className="w-1 h-1 rounded-full bg-emerald-500/50"></div>
+                                       <span className="text-[7.5px] font-black text-emerald-400/60 tracking-[2.5px] uppercase leading-none">
+                                         {news.sourceType || "Berita"}
+                                       </span>
+                                    </div>
+                                    <div className="flex items-stretch rounded-full border border-[rgba(255,255,255,0.03)] overflow-hidden bg-[#111] h-5 shadow-[0_2px_8px_rgba(0,0,0,0.3)]">
+                                      <div className={cn("flex items-center px-2 py-0.5", 
+                                        score >= 80 ? "bg-gradient-to-r from-blue-600/80 to-indigo-700/80" : 
+                                        score < 50 ? "bg-gradient-to-r from-red-600/80 to-rose-700/80" : 
+                                        "bg-gradient-to-r from-neutral-800 to-neutral-900"
+                                      )}>
+                                        <span className={cn("text-[7px] font-black tracking-[1.5px] uppercase mt-px", 
+                                          score >= 80 || score < 50 ? "text-white" : "text-white/30"
+                                        )}>
+                                          {news.impactType.toUpperCase()}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center px-2 py-0.5 bg-[#050505]">
+                                        <span className={cn("font-mono font-black text-[9px]",
+                                          score >= 80 ? "text-blue-400" : 
+                                          score < 50 ? "text-red-400" : 
+                                          "text-[#444]"
+                                        )}>
+                                          {score}
+                                        </span>
+                                      </div>
+                                    </div>
                                   </div>
-                                  <div
-                                    className={cn(
-                                      "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border",
-                                      scoreColor,
-                                    )}
-                                  >
-                                    Impact: {score}
+                                  <div className="flex flex-col gap-2">
+                                    <p className="font-heading text-[18px] font-semibold leading-snug text-white group-hover:text-[var(--color-gold)] transition-colors">
+                                      {news.title}
+                                    </p>
+                                    <p className="text-[13px] text-[#888] line-clamp-2 leading-relaxed">
+                                      {news.summary}
+                                    </p>
                                   </div>
-                                </div>
-                                <div className="flex flex-col gap-1.5">
-                                  <p className="text-sm sm:text-base font-bold leading-tight text-neutral-900 dark:text-neutral-100 transition-colors">
-                                    {news.title}
-                                  </p>
-                                  <p className="text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 line-clamp-2 md:line-clamp-3 leading-relaxed">
-                                    {news.summary}
-                                  </p>
-                                </div>
 
-                                {news.impactedSectors &&
-                                  news.impactedSectors.length > 0 && (
-                                    <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                                      <span className="text-[10px] text-neutral-500 font-medium">
+                                  {news.impactedSectors && news.impactedSectors.length > 0 && (
+                                    <div className="flex flex-wrap items-center gap-2 mt-1">
+                                      <span className="text-[10px] text-[#555] font-bold uppercase tracking-[1px]">
                                         Terdampak:
                                       </span>
-                                      {news.impactedSectors.map((s) => (
-                                        <span
-                                          key={s}
-                                          className="text-[9px] font-bold bg-neutral-200 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 px-1.5 py-0.5 rounded"
-                                        >
-                                          {s}
-                                        </span>
-                                      ))}
+                                      <span className="text-[11px] font-bold text-[#ccc]">
+                                        {news.impactedSectors.join(', ')}
+                                      </span>
                                     </div>
                                   )}
 
-                                <div className="mt-1 flex flex-wrap items-center justify-between border-t border-black/5 dark:border-white/5 pt-3 gap-2">
-                                  <span className="text-[10px] font-bold text-neutral-500 uppercase">
-                                    {news.source}
-                                  </span>
-                                  <span className="text-[10px] font-bold text-neutral-500">
-                                    {news.date}
-                                  </span>
-                                </div>
-                              </motion.div>
+                                  <div className="mt-2 p-1.5 bg-[#080808] border border-[rgba(255,255,255,0.02)] rounded flex items-center justify-between relative overflow-hidden">
+                                    <div className="absolute left-0 top-0 bottom-0 w-[1px] bg-[var(--color-gold)]/10"></div>
+                                    <div className="flex items-center gap-1.5">
+                                      <motion.div
+                                        animate={{ opacity: [0.3, 0.6, 0.3] }}
+                                        transition={{ duration: 2, repeat: Infinity }}
+                                      >
+                                        <Globe2 size={8} className="text-[var(--color-gold)]" />
+                                      </motion.div>
+                                      <motion.span 
+                                        animate={{ 
+                                          textShadow: [
+                                            "0 0 0px rgba(212,175,55,0)",
+                                            "0 0 4px rgba(212,175,55,0.2)",
+                                            "0 0 0px rgba(212,175,55,0)"
+                                          ],
+                                          color: ["#555", "#888", "#555"]
+                                        }}
+                                        transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                                        className="text-[8px] font-bold uppercase tracking-[1px]"
+                                      >
+                                        {news.source}
+                                      </motion.span>
+                                    </div>
+                                    <span className="text-[7px] font-mono font-bold text-[#333] whitespace-nowrap">
+                                      {news.date.split(',')[0].replace(' 2026', '')} • {news.date.split(',')[1]?.trim().split(' ')[0]}
+                                    </span>
+                                  </div>
+                                </motion.div>
                             );
                           })}
                       </div>
@@ -985,20 +1262,28 @@ export default function App() {
               <div className="space-y-6 sm:space-y-8 xl:col-span-4 md:max-xl:col-span-1">
                 <Card
                   title="Sektor Impact"
-                  icon={<PieChart size={20} className="text-purple-500" />}
+                  variant="seamless"
+                  icon={<PieChart size={20} />}
                   headerAction={
                     <button
                       onClick={() => {
                         setMacroRefreshKey((prev) => prev + 1);
                       }}
-                      className="flex shrink-0 items-center justify-center p-2 rounded-xl bg-neutral-100 text-neutral-600 transition-colors hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
+                      className="flex shrink-0 items-center justify-center p-2 rounded-xl bg-[#111] border border-[#333] text-[#888] transition-colors hover:bg-[#222]"
                       title="Muat Ulang Kombinasi Makro"
                     >
                       <RefreshCw size={14} />
                     </button>
                   }
                 >
-                  <div className="space-y-4 pt-4">
+                  <div className="h-[450px] sm:h-[550px] lg:h-[650px] flex flex-col pt-4">
+                    <div 
+                      className="flex-1 overflow-y-auto pr-2 pb-4 space-y-4"
+                      style={{
+                        scrollbarWidth: "thin",
+                        scrollbarColor: "#d4d4d8 transparent",
+                      }}
+                    >
                     {sectorScores.map((sector, i) => {
                       const nameSplit = sector.name.split(" (");
                       const titleMain = nameSplit[0];
@@ -1019,10 +1304,10 @@ export default function App() {
                             damping: 10,
                           }}
                           className={cn(
-                            "w-full bg-white/80 dark:bg-slate-900/70 backdrop-blur-md rounded-[1.5rem] relative overflow-hidden shadow-sm mt-3 first:mt-0 border",
-                            isAiPositive ? "border-emerald-100 dark:border-emerald-500/20" :
-                            isAiNegative ? "border-red-100 dark:border-rose-500/20" :
-                            "border-neutral-200 dark:border-white/10 dark:border-t-white/20"
+                            "w-full bg-[#0a0a0a] backdrop-blur-md rounded-2xl relative overflow-hidden mt-3 first:mt-0 border",
+                            isAiPositive ? "border-emerald-500/20" :
+                            isAiNegative ? "border-rose-500/20" :
+                            "border-[#1a1a1a]"
                           )}
                         >
                           <motion.div
@@ -1043,24 +1328,24 @@ export default function App() {
                             <div className="flex justify-between items-start gap-2">
                               
                               <div className="flex gap-2 sm:gap-3 items-center flex-1 min-w-0">
-                                <div className="w-8 h-8 sm:w-10 sm:h-10 shrink-0 rounded-xl bg-neutral-100 dark:bg-slate-800/80 flex items-center justify-center border border-neutral-200 dark:border-slate-700/50 shadow-inner">
-                                  <div className="text-neutral-500 dark:text-slate-300 w-4 h-4 sm:w-5 sm:h-5 flex items-center justify-center">
+                                <div className="w-8 h-8 sm:w-10 sm:h-10 shrink-0 rounded-xl bg-[#080808] flex items-center justify-center border border-[#333] shadow-inner">
+                                  <div className="text-[#888] w-4 h-4 sm:w-5 sm:h-5 flex items-center justify-center">
                                     {getIcon(sector.icon)}
                                   </div>
                                 </div>
                                 <div className="min-w-0 flex-1">
-                                  <h2 className="text-neutral-900 dark:text-white font-bold text-xs sm:text-sm leading-tight break-words">{titleMain}</h2>
-                                  <p className="text-neutral-500 dark:text-slate-500 text-[9px] sm:text-[10px] font-medium mt-0.5 break-words">{titleSub}</p>
+                                  <h2 className="text-white font-bold text-xs sm:text-sm leading-tight break-words">{titleMain}</h2>
+                                  <p className="text-[#888] text-[9px] sm:text-[10px] font-medium mt-0.5 break-words">{titleSub}</p>
                                 </div>
                               </div>
 
                               <div className="flex flex-col items-end gap-1.5 shrink-0">
                                 
-                                <div className="flex items-stretch rounded-full border border-neutral-200 dark:border-slate-700/50 overflow-hidden bg-white dark:bg-slate-900 shadow-sm">
+                                <div className="flex items-stretch rounded-full border border-[#333] overflow-hidden bg-[#080808]">
                                   <div className={cn("flex items-center gap-1 px-1.5 py-0.5", 
                                     isAiPositive ? "bg-gradient-to-r from-emerald-400 to-teal-500" : 
                                     isAiNegative ? "bg-gradient-to-r from-red-400 to-rose-500" : 
-                                    "bg-gradient-to-r from-neutral-300 to-neutral-400 dark:from-neutral-600 dark:to-neutral-700"
+                                    "bg-gradient-to-r from-neutral-600 to-neutral-700"
                                   )}>
                                     <span className={cn("text-[8px] font-black tracking-widest mt-px", 
                                       isAiPositive || isAiNegative ? "text-slate-900" : "text-neutral-700 dark:text-white"
@@ -1073,32 +1358,32 @@ export default function App() {
                                       key={`prob-${sector.probability}`}
                                       initial={{ opacity: 0, scale: 0.9 }}
                                       animate={{ opacity: 1, scale: 1 }}
-                                      className="text-neutral-800 dark:text-white font-extrabold text-[10px]"
+                                      className="text-white font-extrabold font-mono text-[10px]"
                                     >
                                       {sector.probability.toFixed(2)}
                                     </motion.span>
                                   </div>
                                 </div>
 
-                                <div className="bg-neutral-50 border border-neutral-200 dark:bg-slate-800/40 dark:border-slate-700/40 rounded-md p-1.5 flex gap-2 items-center">
-                                  <div className="flex flex-col border-r border-neutral-200 dark:border-slate-700/50 pr-2">
-                                    <span className="text-neutral-400 dark:text-slate-500 text-[6px] sm:text-[7px] font-bold uppercase tracking-tighter">Prev</span>
+                                <div className="bg-[#111] border border-[#333] rounded-md p-1.5 flex gap-2 items-center">
+                                  <div className="flex flex-col border-r border-[#333] pr-2">
+                                    <span className="text-[#666] text-[6px] sm:text-[7px] font-bold uppercase tracking-tighter">Prev</span>
                                     <motion.span 
                                       key={`prev-${sector.prevPrice}`}
                                       initial={{ opacity: 0, scale: 0.9 }}
                                       animate={{ opacity: 1, scale: 1 }}
-                                      className="text-neutral-600 dark:text-slate-300 font-bold text-[9px]"
+                                      className="text-[#aaa] font-bold font-mono text-[9px]"
                                     >
                                       {sector.prevPrice > 0 ? sector.prevPrice.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
                                     </motion.span>
                                   </div>
                                   <div className="flex flex-col">
-                                    <span className="text-neutral-400 dark:text-slate-500 text-[6px] sm:text-[7px] font-bold uppercase tracking-tighter">Chg</span>
+                                    <span className="text-[#666] text-[6px] sm:text-[7px] font-bold uppercase tracking-tighter">Chg</span>
                                     <motion.span 
                                       key={`chg-${sector.marketChangePercent}`}
                                       initial={{ opacity: 0, scale: 0.9 }}
                                       animate={{ opacity: 1, scale: 1 }}
-                                      className={cn("font-bold text-[9px] flex items-center gap-0.5", 
+                                      className={cn("font-bold font-mono text-[9px] flex items-center gap-0.5", 
                                         isPositive ? "text-emerald-500 dark:text-emerald-400" : "text-red-500 dark:text-red-400"
                                       )}
                                     >
@@ -1116,13 +1401,13 @@ export default function App() {
                           </div>
 
                           <div className={cn("relative z-10 mx-2 mb-2 sm:mx-3 sm:mb-3 p-2 sm:px-3 rounded-lg border", 
-                            isPositive ? "bg-emerald-50 dark:bg-emerald-500/5 border-emerald-200 dark:border-emerald-500/20" : 
-                            "bg-red-50 dark:bg-red-500/5 border-red-200 dark:border-red-500/20"
+                            isPositive ? "bg-emerald-500/5 border-emerald-500/20" : 
+                            "bg-red-500/5 border-red-500/20"
                           )}>
                             <div className="flex items-center justify-between">
                               <div>
-                                <h3 className="text-neutral-500 dark:text-slate-500 text-[8px] sm:text-[9px] font-bold uppercase tracking-widest mb-0.5">Market Index</h3>
-                                <p className="text-neutral-800 dark:text-slate-200 font-bold text-[10px] sm:text-xs">{sector.marketIndex || titleMain}</p>
+                                <h3 className="text-[#888] text-[8px] sm:text-[9px] font-bold uppercase tracking-widest mb-0.5">Market Index</h3>
+                                <p className="text-[#e2e2e2] font-bold text-[10px] sm:text-xs">{sector.marketIndex || titleMain}</p>
                               </div>
                               
                               <div className="text-right">
@@ -1130,7 +1415,7 @@ export default function App() {
                                   key={`price-${sector.price}`}
                                   initial={{ opacity: 0, scale: 0.9 }}
                                   animate={{ opacity: 1, scale: 1 }}
-                                  className="text-neutral-900 dark:text-white font-bold text-sm"
+                                  className="text-white font-bold text-sm"
                                 >
                                   {sector.price > 0 ? sector.price.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
                                 </motion.div>
@@ -1156,19 +1441,20 @@ export default function App() {
                       );
                     })}
                   </div>
+                </div>
                 </Card>
 
-                <div className="rounded-3xl border-2 border-dashed border-neutral-200 p-6 text-center dark:border-neutral-800">
+                <div className="rounded-2xl border border-dashed border-[#2a2a2a] bg-[#111] p-6 text-center">
                   <BarChart3
                     size={40}
-                    className="mx-auto mb-4 text-neutral-300 dark:text-neutral-700"
+                    className="mx-auto mb-4 text-[#888]"
                   />
-                  <h3 className="mb-2 font-bold">Butuh Konsultasi AI?</h3>
-                  <p className="mb-4 text-xs text-neutral-500">
+                  <h3 className="mb-2 font-bold text-white">Butuh Konsultasi AI?</h3>
+                  <p className="mb-4 text-xs text-[#888]">
                     Gunakan asisten cerdas kami untuk menganalisis portofolio
                     Anda secara mendalam.
                   </p>
-                  <button className="w-full rounded-2xl bg-neutral-900 py-3 font-bold text-white transition-all hover:bg-neutral-800 active:scale-95 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200">
+                  <button className="w-full rounded-2xl bg-[var(--color-gold)] text-black py-3 font-bold transition-all hover:bg-[var(--color-gold-hover)] active:scale-95">
                     Mulai AI Chat
                   </button>
                 </div>
@@ -1178,185 +1464,155 @@ export default function App() {
         )}
 
         {activeTab === "News" && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="mb-8 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-50 dark:bg-orange-900/20 text-orange-500">
-                  <Newspaper size={24} />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50">Aliran Berita</h2>
-                  <p className="text-sm text-neutral-500 dark:text-neutral-400">Informasi dan sentimen pasar terkini.</p>
-                </div>
+          <div className="flex flex-col lg:flex-row min-h-[calc(100vh-120px)] w-full">
+            {/* News Column */}
+            <main className="w-full bg-[var(--color-bg-news)] p-6 sm:p-8 lg:p-10 xl:px-12 pb-24">
+              <div className="flex justify-between items-center mb-10">
+                  <h2 className="font-heading text-4xl sm:text-3xl font-extrabold text-white tracking-[0.5px]">News Feed</h2>
+                  <motion.button 
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    animate={{ 
+                      boxShadow: ["0 0 0px rgba(212,175,55,0)", "0 0 15px rgba(212,175,55,0.4)", "0 0 0px rgba(212,175,55,0)"],
+                      borderColor: ["rgba(212,175,55,0.2)", "rgba(212,175,55,0.6)", "rgba(212,175,55,0.2)"]
+                    }}
+                    transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+                    className="flex items-center gap-2 px-5 py-2 sm:px-4 sm:py-1.5 rounded-full border border-[var(--color-gold)]/20 bg-[var(--color-gold)]/5 text-[var(--color-gold)] text-[11px] sm:text-[10px] font-bold uppercase tracking-[1.5px] cursor-pointer hover:bg-[var(--color-gold)]/10 transition-all" 
+                    onClick={() => fetchNews()}
+                  >
+                    <RefreshCw size={12} className={cn(isRefreshingNews && "animate-spin")} /> Segarkan
+                  </motion.button>
               </div>
-              <button
-                onClick={() => fetchNews()}
-                disabled={isRefreshingNews}
-                className="flex shrink-0 items-center justify-center p-3 rounded-xl bg-white shadow-sm ring-1 ring-black/5 text-neutral-600 transition-all hover:bg-neutral-50 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-300 dark:ring-white/10 dark:hover:bg-neutral-700"
-                title="Muat Ulang"
-              >
-                <RefreshCw
-                  size={16}
-                  className={cn(isRefreshingNews && "animate-spin")}
-                />
-              </button>
-            </div>
 
-            <div className="mb-6 flex flex-wrap gap-2">
-              {[
-                "Semua",
-                "Otoritas",
-                "Media Lokal",
-                "Media Global",
-                "Sentimen Komunitas",
-              ].map((type) => (
-                <button
-                  key={type}
-                  onClick={() => setSelectedNewsType(type)}
-                  className={cn(
-                    "rounded-full px-4 py-2 text-sm font-bold transition-all",
-                    selectedNewsType === type
-                      ? "bg-orange-500 text-white shadow-md dark:bg-orange-600"
-                      : "bg-white shadow-sm ring-1 ring-black/5 text-neutral-600 hover:bg-neutral-50 dark:bg-neutral-800 dark:text-neutral-400 dark:ring-white/10 dark:hover:bg-neutral-700",
-                  )}
-                >
-                  {type}
-                </button>
-              ))}
-            </div>
+              <div className="flex gap-8 border-b border-[#222] pb-4 mb-8 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+                  {["Semua", "Otoritas", "Media Lokal", "Media Global", "Sentimen Komunitas"].map((type) => (
+                    <button
+                      key={type}
+                      onClick={() => setSelectedNewsType(type)}
+                      className={cn(
+                        "text-[13px] sm:text-xs font-bold uppercase tracking-[1px] transition-colors relative whitespace-nowrap",
+                        selectedNewsType === type ? "text-[var(--color-gold)]" : "text-[var(--color-text-muted)] hover:text-white"
+                      )}
+                    >
+                      {type}
+                      {selectedNewsType === type && (
+                        <span className="absolute left-0 -bottom-[17px] w-full h-[2px] bg-[var(--color-gold)]" />
+                      )}
+                    </button>
+                  ))}
+              </div>
 
-            <div className="min-h-[75vh]">
-              {isRefreshingNews ? (
-                <div className="flex w-full py-32 flex-col items-center justify-center space-y-4 text-neutral-400">
-                  <RefreshCw
-                    size={32}
-                    className="animate-spin text-orange-500"
-                  />
-                  <p className="animate-pulse text-base font-semibold tracking-wider">
-                    Memuat berita terbaru...
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-6">
-                  {filteredNewsList
-                    .slice(0, activeTab === "News" ? 100 : 7)
-                    .map((news) => {
+              <div className="flex flex-col gap-0 border-t border-[rgba(255,255,255,0.02)]">
+                {isRefreshingNews ? (
+                  <div className="p-10 text-center text-[#666]">Memuat...</div>
+                ) : (
+                  <div className="space-y-3">
+                    {filteredNewsList.map((news, index) => {
                       const score = news.impactScore || 0;
-                      let scoreColor =
-                        "text-neutral-600 bg-neutral-100 dark:bg-neutral-800 ring-1 ring-black/5 dark:ring-white/10";
-                      if (score >= 80)
-                        scoreColor =
-                          "text-emerald-700 bg-emerald-50 ring-1 ring-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/20";
-                      else if (score < 50)
-                        scoreColor =
-                          "text-rose-700 bg-rose-50 ring-1 ring-rose-500/20 dark:bg-rose-500/10 dark:text-rose-400 dark:ring-rose-500/20";
-                      else
-                        scoreColor =
-                          "text-amber-700 bg-amber-50 ring-1 ring-amber-500/20 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-500/20";
+                      const isHigh = score >= 80;
+                      const isLow = score < 50;
+                      const isMedium = score >= 50 && score < 80;
+
+                      const impactBorderColor = isHigh ? "border-blue-500" : isLow ? "border-[var(--color-perf-down)]" : "border-transparent";
+                      const bgClass = isHigh ? "bg-[#0c121e] shadow-[0_4px_25px_rgba(0,0,0,0.5)]" : isLow ? "bg-[#1a0c0c] shadow-[0_4px_25px_rgba(0,0,0,0.5)]" : "bg-[#0d0d0d] shadow-[0_4px_25px_rgba(0,0,0,0.5)]";
+                      const hoverBg = isHigh ? "hover:bg-[rgba(59,130,246,0.2)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.6)]" : isLow ? "hover:bg-[rgba(255,59,59,0.2)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.6)]" : "hover:bg-[#151515] hover:shadow-[0_8px_30px_rgba(0,0,0,0.6)]";
 
                       return (
-                        <motion.div
-                          key={news.id}
-                          whileHover={{ y: -4 }}
+                        <motion.article 
+                          key={news.id} 
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.05, duration: 0.4 }}
+                          whileHover={{ x: 12, scale: 1.005 }}
+                          whileTap={{ scale: 0.99 }}
                           onClick={() => setSelectedNews(news)}
                           className={cn(
-                            "group relative flex cursor-pointer flex-col justify-between gap-6 p-6 sm:p-8 transition-all duration-300",
-                            "bg-white dark:bg-neutral-900 rounded-3xl",
-                            "shadow-sm ring-1 ring-black/5 dark:ring-white/5",
-                            "hover:shadow-xl hover:shadow-black/5 dark:hover:shadow-white/5 hover:ring-black/10 dark:hover:ring-white/10",
-                            "overflow-hidden",
+                            "group py-6 px-8 border-b border-[rgba(255,255,255,0.05)] cursor-pointer transition-all duration-300 rounded-r-xl",
+                            isMedium ? "border-l-0" : "border-l-4",
+                            bgClass,
+                            hoverBg,
+                            impactBorderColor
                           )}
                         >
-                          <div className="absolute top-0 right-0 h-32 w-32 -translate-y-16 translate-x-16 rounded-full bg-gradient-to-br from-neutral-100 to-transparent opacity-50 blur-3xl transition-transform duration-500 group-hover:scale-150 dark:from-neutral-800" />
-                          
-                          <div className="relative z-10 flex flex-col gap-6">
-                            <div className="flex flex-wrap items-center justify-between gap-3">
-                              <div className="flex items-center gap-2">
-                                <div
-                                  className={cn(
-                                    "flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full ring-1 ring-inset",
-                                    news.sourceType === "Otoritas"
-                                      ? "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300 ring-blue-500/20"
-                                      : news.sourceType === "Media Lokal"
-                                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300 ring-emerald-500/20"
-                                        : news.sourceType === "Media Global"
-                                          ? "bg-purple-50 text-purple-700 dark:bg-purple-500/10 dark:text-purple-300 ring-purple-500/20"
-                                          : "bg-orange-50 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300 ring-orange-500/20",
-                                  )}
-                                >
-                                  {news.sourceType === "Otoritas" ? <Landmark size={12} /> : news.sourceType === "Media Lokal" ? <MapPin size={12} /> : news.sourceType === "Media Global" ? <Globe2 size={12} /> : <Users size={12} />}
-                                  <span>{news.sourceType || "Berita"}</span>
-                                </div>
-                                <div className="px-3 py-1.5 rounded-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-sm flex items-center gap-1.5 border-l-4 border-l-blue-500">
-                                  <span className="text-[10px] font-bold uppercase tracking-widest text-neutral-600 dark:text-neutral-400">
-                                    Target: <span className="text-blue-600 dark:text-blue-400">{news.impactType}</span>
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="flex flex-col gap-3">
-                              <h3 className="text-xl font-bold leading-tight tracking-tight text-neutral-900 dark:text-neutral-50 transition-colors group-hover:text-blue-600 dark:group-hover:text-blue-400">
-                                {news.title}
-                              </h3>
-                              <p className="text-sm sm:text-base text-neutral-600 dark:text-neutral-400 line-clamp-3 leading-relaxed">
-                                {news.summary}
-                              </p>
-                            </div>
-
-                            {news.impactedSectors && news.impactedSectors.length > 0 && (
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-[11px] text-neutral-500 font-bold uppercase tracking-wider">
-                                  Terdampak:
-                                </span>
-                                {news.impactedSectors.map((s) => {
-                                  let label = s;
-                                  if (news.impactType === 'Emiten') {
-                                    const codes = news.title.match(/\b[A-Z]{4}\b/g);
-                                    if (codes && codes.length > 0) {
-                                      label = codes.join(', ');
-                                    }
-                                  }
-
-                                  return (
-                                    <span
-                                      key={s}
-                                      className="text-[11px] font-bold bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 shadow-[0_1px_2px_rgba(0,0,0,0.05)] dark:shadow-none"
-                                    >
-                                      {news.impactType === 'Emiten' ? `Saham ${label}` : label}
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="mt-4 flex flex-wrap items-center justify-between bg-neutral-50 dark:bg-neutral-800/50 p-4 rounded-2xl ring-1 ring-inset ring-neutral-200/60 dark:ring-neutral-700/50 relative z-10 gap-4">
-                            <div className="flex flex-col gap-1.5">
-                               <span className="text-xs font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-1.5">
-                                 <Newspaper size={14} className="text-neutral-500" />
-                                 {news.source}
-                               </span>
-                               <span className="text-[11px] font-semibold text-neutral-500 flex items-center gap-1.5">
-                                 <Clock size={12} />
-                                 {news.date}
-                               </span>
-                            </div>
-                            <div
-                              className={cn(
-                                "text-[11px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl shadow-sm border-transparent",
-                                scoreColor,
-                              )}
+                      <div className="flex justify-between items-center mb-4">
+                         <div className="flex items-center gap-2 px-2 py-1 rounded bg-[#080808] border border-emerald-500/10 shadow-inner">
+                            <div className="w-1 h-1 rounded-full bg-emerald-500/50"></div>
+                            <span className="text-[7.5px] font-black text-emerald-400/60 tracking-[2.5px] uppercase leading-none">
+                              {news.sourceType}
+                            </span>
+                         </div>
+                         <div className="flex items-stretch rounded-full border border-[rgba(255,255,255,0.03)] overflow-hidden bg-[#111] h-5 shadow-[0_2px_8px_rgba(0,0,0,0.3)]">
+                           <div className={cn("flex items-center px-2 py-0.5", 
+                             isHigh ? "bg-gradient-to-r from-blue-500 to-indigo-600" : 
+                             isLow ? "bg-gradient-to-r from-red-500 to-rose-600" : 
+                             "bg-gradient-to-r from-neutral-800 to-neutral-900"
+                           )}>
+                             <span className={cn("text-[7px] font-black tracking-[1.5px] uppercase mt-px", 
+                               isHigh || isLow ? "text-white" : "text-white/30"
+                             )}>
+                               {news.impactType.toUpperCase()}
+                             </span>
+                           </div>
+                           <div className="flex items-center px-2 py-0.5 bg-[#050505]">
+                             <span className={cn("font-mono font-black text-[10px]",
+                               isHigh ? "text-blue-400" : 
+                               isLow ? "text-red-400" : 
+                               "text-[#444]"
+                             )}>
+                               {score}
+                             </span>
+                           </div>
+                         </div>
+                      </div>
+                      <h3 className="font-heading text-[22px] font-semibold text-white mb-2.5 leading-snug group-hover:text-[var(--color-gold)] transition-colors">
+                        {news.title}
+                      </h3>
+                      <p className="text-sm text-[#a0a0a0] mb-4 line-clamp-2">
+                        {news.summary}
+                      </p>
+                      <div className="mt-3.5 p-2 bg-[#050505] border border-[#111] rounded-md flex items-center justify-between relative overflow-hidden">
+                         <div className="absolute left-0 top-0 bottom-0 w-[1.5px] bg-[var(--color-gold)]/20"></div>
+                         <div className="flex items-center gap-2">
+                            <motion.div
+                              animate={{ opacity: [0.4, 0.8, 0.4] }}
+                              transition={{ duration: 2, repeat: Infinity }}
                             >
-                              Impact: <span className="text-sm ml-1 text-inherit">{score}</span>
-                            </div>
-                          </div>
-                        </motion.div>
-                      );
-                    })}
+                              <Globe2 size={10} className="text-[var(--color-gold)]" />
+                            </motion.div>
+                            <motion.span 
+                              animate={{ 
+                                textShadow: [
+                                  "0 0 0px rgba(212,175,55,0)",
+                                  "0 0 8px rgba(212,175,55,0.3)",
+                                  "0 0 0px rgba(212,175,55,0)"
+                                ],
+                                color: ["#666", "#999", "#666"]
+                              }}
+                              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                              className="text-[9px] font-black uppercase tracking-[1px]"
+                            >
+                              {news.source}
+                            </motion.span>
+                         </div>
+                         
+                         <div className="flex gap-2.5 items-center">
+                            {news.impactedSectors && news.impactedSectors.length > 0 && (
+                              <span className="hidden sm:inline text-[8px] font-bold text-[#222] tracking-[2px] uppercase truncate max-w-[100px]">
+                                {news.impactedSectors.join(', ')}
+                              </span>
+                            )}
+                            <span className="text-[9px] font-mono font-bold text-[#333] border-l border-[#1a1a1a] pl-2.5 whitespace-nowrap">
+                              {news.date.split(',')[0].replace(' 2026', '')} • {news.date.split(',')[1]?.trim().split(' ')[0]}
+                            </span>
+                         </div>
+                      </div>
+                      </motion.article>
+                    );
+                  })}
                 </div>
-              )}
-            </div>
+                )}
+              </div>
+            </main>
           </div>
         )}
 
@@ -1366,13 +1622,13 @@ export default function App() {
               <div className="space-y-6 sm:space-y-8 xl:col-span-8 md:max-xl:col-span-1">
                 <Card
                   title="Grafik IHSG"
-                  icon={<BarChart3 size={20} className="text-blue-500" />}
+                  icon={<BarChart3 size={20} />}
                 >
-                  <div className="h-[300px] sm:h-[400px] w-full pt-4 overflow-hidden rounded-xl">
+                  <div className="h-[400px] sm:h-[400px] w-full pt-4 overflow-hidden rounded-xl">
                     <AdvancedRealTimeChart
                       symbol="IDX:COMPOSITE"
                       theme="dark"
-                      interval="240"
+                      interval="D"
                       autosize
                       allow_symbol_change={false}
                       hide_side_toolbar={true}
@@ -1385,33 +1641,33 @@ export default function App() {
                 </Card>
                 <Card
                   title="Kalender Aksi Korporasi"
-                  icon={<Calendar size={20} className="text-pink-500" />}
+                  icon={<Calendar size={20} />}
                 >
                   <div className="space-y-4 pt-4">
                     {MOCK_CORPORATE_EVENTS.map((event) => (
                       <div
                         key={event.id}
-                        className="group flex flex-col sm:flex-row sm:items-center justify-between border-b border-neutral-100 pb-4 last:border-0 last:pb-0 dark:border-neutral-800"
+                        className="group flex flex-col sm:flex-row sm:items-center justify-between border-b border-[#222] pb-4 last:border-0 last:pb-0"
                       >
                         <div className="flex items-start gap-4">
-                          <div className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-xl bg-pink-50 dark:bg-pink-900/20 text-pink-600 dark:text-pink-400">
-                            <span className="text-xs font-bold uppercase">
+                          <div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl bg-[#111] text-[#ccc] group-hover:scale-105 transition-transform">
+                            <span className="text-[10px] font-bold uppercase">
                               {event.date.split(" ")[1]}
                             </span>
-                            <span className="text-lg font-black leading-none">
+                            <span className="text-xl font-black leading-none">
                               {event.date.split(" ")[0]}
                             </span>
                           </div>
                           <div>
                             <div className="flex items-center gap-2">
-                              <span className="font-black text-lg tracking-tighter">
+                              <span className="font-black text-xl sm:text-lg tracking-tighter">
                                 {event.symbol}
                               </span>
-                              <span className="rounded bg-neutral-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+                              <span className="rounded bg-[#222] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#888]">
                                 {event.type}
                               </span>
                             </div>
-                            <p className="mt-1 text-xs leading-relaxed text-neutral-500 dark:text-neutral-400">
+                            <p className="mt-1 text-xs leading-relaxed text-[#666]">
                               {event.desc}
                             </p>
                           </div>
@@ -1419,7 +1675,7 @@ export default function App() {
                       </div>
                     ))}
                     <div className="pt-2">
-                      <p className="text-[10px] italic text-neutral-400 text-center">
+                      <p className="text-[10px] italic text-[#444] text-center">
                         Sumber: Keterbukaan Informasi Bursa Efek Indonesia (IDX)
                       </p>
                     </div>
@@ -1438,7 +1694,7 @@ export default function App() {
                         setTimeout(() => setIsRefreshing(false), 1500);
                       }}
                       disabled={isRefreshing}
-                      className="flex items-center gap-1.5 rounded-xl bg-neutral-100 px-3 py-1.5 text-xs font-bold text-neutral-600 transition-colors hover:bg-neutral-200 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
+                      className="flex items-center gap-1.5 rounded-xl bg-[#111] px-3 py-1.5 text-xs font-bold text-[#888] transition-colors hover:bg-[#222] disabled:opacity-50"
                     >
                       <RefreshCw
                         size={14}
@@ -1461,10 +1717,10 @@ export default function App() {
                         key={sector}
                         onClick={() => setSelectedSector(sector)}
                         className={cn(
-                          "rounded-full px-3 py-1 text-xs font-bold transition-all",
+                          "rounded-full px-4 py-2 text-xs font-bold uppercase tracking-[1px] transition-all",
                           selectedSector === sector
-                            ? "bg-blue-500 text-white shadow-md dark:bg-blue-600"
-                            : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700",
+                            ? "bg-[#111] text-[var(--color-gold)] border border-[#333] shadow-[0_2px_8px_rgba(0,0,0,0.5)]"
+                            : "bg-[#080808] text-[#888] hover:text-white border border-[#222]",
                         )}
                       >
                         {sector}
@@ -1473,12 +1729,12 @@ export default function App() {
                   </div>
                   <div className="space-y-5">
                     {isRefreshing ? (
-                      <div className="flex h-32 flex-col items-center justify-center space-y-4 text-neutral-400">
+                      <div className="flex h-32 flex-col items-center justify-center space-y-4 text-[#888]">
                         <RefreshCw
                           size={32}
-                          className="animate-spin text-blue-500"
+                          className="animate-spin text-[var(--color-gold)]"
                         />
-                        <p className="animate-pulse text-sm font-semibold tracking-wider">
+                        <p className="animate-pulse text-xs font-bold uppercase tracking-[1.5px]">
                           Menjalankan 23-Point Technical Protocol...
                         </p>
                       </div>
@@ -1488,28 +1744,28 @@ export default function App() {
                           key={i}
                           whileHover={{ x: 4 }}
                           onClick={() => setSelectedStock(stock)}
-                          className="group cursor-pointer border-b border-neutral-100 pb-4 last:border-0 last:pb-0 dark:border-neutral-800"
+                          className="group cursor-pointer border-b border-[#222] pb-4 last:border-0 last:pb-0"
                         >
                           <div className="flex items-center justify-between">
                             <div>
                               <div className="flex items-center gap-2">
-                                <span className="font-black text-lg tracking-tighter">
+                                <span className="font-black text-xl sm:text-lg tracking-tighter text-white">
                                   {stock.symbol}
                                 </span>
-                                <span className="text-xs font-semibold uppercase text-neutral-400">
+                                <span className="text-xs font-semibold uppercase text-[#666]">
                                   {stock.name.split(" ")[0]}
                                 </span>
                               </div>
                               <div className="mt-1 flex items-center gap-2">
-                                <span className="text-sm font-medium text-neutral-500">
+                                <span className="text-sm font-medium text-[#888]">
                                   Rp {stock.price.toLocaleString("id-ID")}
                                 </span>
                                 <span
                                   className={cn(
                                     "text-xs font-bold",
                                     stock.change >= 0
-                                      ? "text-green-500"
-                                      : "text-red-500",
+                                      ? "text-[var(--color-perf-up)]"
+                                      : "text-[var(--color-perf-down)]",
                                   )}
                                 >
                                   {stock.change >= 0 ? "+" : ""}
@@ -1517,14 +1773,14 @@ export default function App() {
                                 </span>
                               </div>
                             </div>
-                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-neutral-900 transition-all group-hover:bg-blue-600 group-hover:text-white dark:bg-neutral-800 dark:text-neutral-100">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#111] text-[#888] transition-all group-hover:bg-[#222] group-hover:text-[var(--color-gold)]">
                               <ChevronRight size={18} />
                             </div>
                           </div>
-                          <p className="mt-3 text-xs leading-relaxed text-neutral-500 dark:text-neutral-400">
+                          <p className="mt-3 text-xs leading-relaxed text-[#666]">
                             {stock.reason}
                           </p>
-                          <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-blue-500 opacity-0 transition-opacity group-hover:opacity-100">
+                          <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-[var(--color-gold)] opacity-0 transition-opacity group-hover:opacity-100">
                             Klik untuk detail analisis
                           </p>
                         </motion.div>
@@ -1536,35 +1792,456 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {activeTab === "Portfolio" && (
+          isLoggedIn ? (
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8">
+              {/* Portfolio content ... */}
+              {/* I will use the existing content here as a variable or just inline it */}
+              
+              {/* Unified Dashboard Header */}
+              <div className="relative overflow-hidden rounded-3xl border border-[#2a2a2a] bg-[#0d0d0d] p-8 shadow-[0_20px_50px_rgba(0,0,0,0.4)]">
+                <div className="absolute top-0 right-0 w-1/3 h-full bg-gradient-to-l from-[var(--color-gold)]/5 to-transparent pointer-events-none"></div>
+                <div className="relative flex flex-col md:flex-row justify-between items-start md:items-center gap-8">
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-2 h-2 rounded-full bg-[var(--color-gold)] animate-pulse"></div>
+                      <span className="text-[10px] font-black uppercase tracking-[3px] text-[#555]">Global Portfolio Balance</span>
+                      <button 
+                        onClick={() => setIsBalanceHidden(!isBalanceHidden)}
+                        className="ml-2 p-1 text-[#444] hover:text-[var(--color-gold)] transition-colors"
+                      >
+                        {isBalanceHidden ? <Eye size={12} /> : <EyeOff size={12} />}
+                      </button>
+                    </div>
+                    <h2 className="text-4xl sm:text-5xl font-black text-white font-heading tracking-tighter">
+                      {isBalanceHidden ? "Rp ••••••••" : `Rp ${portfolioStats.currentBalance.toLocaleString("id-ID")}`}
+                    </h2>
+                    <div className="mt-4 flex flex-col gap-3">
+                      <div className="flex flex-wrap items-center gap-4 sm:gap-6">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black text-[#444] uppercase tracking-wider">Est. P/L:</span>
+                          <div className={cn(
+                            "flex items-center gap-1.5 px-2 py-0.5 rounded font-bold text-xs border",
+                            portfolioStats.totalPL >= 0 
+                              ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" 
+                              : "bg-rose-500/10 border-rose-500/20 text-rose-400"
+                          )}>
+                            {portfolioStats.totalPL >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                            {portfolioStats.totalPLPercent >= 0 ? "+" : ""}{portfolioStats.totalPLPercent.toFixed(2)}%
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 border-l border-[#222] pl-4 sm:pl-6">
+                          <span className="text-[10px] font-black text-[#444] uppercase tracking-wider">Positions:</span>
+                          <span className="text-xs font-black text-white">{trades.length} Active</span>
+                        </div>
+                        <div className="flex items-center gap-2 border-l border-[#222] pl-4 sm:pl-6">
+                          <span className="text-[10px] font-black text-[#444] uppercase tracking-wider">Win Rate:</span>
+                          <span className="text-xs font-black text-[var(--color-gold)]">{portfolioStats.winRate.toFixed(0)}%</span>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-4 sm:gap-6 pt-1">
+                        <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-black text-[#444] uppercase tracking-wider">Buying Power:</span>
+                            <span className="text-xs font-black text-emerald-400">
+                              {isBalanceHidden ? "Rp ••••••••" : `Rp ${portfolioStats.buyingPower.toLocaleString("id-ID")}`}
+                            </span>
+                        </div>
+                        <div className="flex items-center gap-2 border-l border-[#222] pl-4 sm:pl-6">
+                            <span className="text-[10px] font-black text-[#444] uppercase tracking-wider">Invested Value:</span>
+                            <span className="text-xs font-black text-[#888]">
+                              {isBalanceHidden ? "Rp ••••••••" : `Rp ${portfolioStats.totalInvested.toLocaleString("id-ID")}`}
+                            </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-stretch md:items-center gap-4 w-full md:w-auto">
+                    <button 
+                      onClick={handleAddTrade}
+                      className="flex-1 md:flex-none flex items-center justify-center gap-2 rounded-2xl bg-[var(--color-gold)] hover:bg-[var(--color-gold-hover)] px-8 py-5 text-xs font-black text-black transition-all active:scale-95 uppercase tracking-[2px] shadow-[0_10px_30px_rgba(212,175,55,0.2)]"
+                    >
+                      <Plus size={18} strokeWidth={3} />
+                      Catat Entry
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Split Content Section */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                {/* Left: Trade Journal Table */}
+                <div className="lg:col-span-8 space-y-6">
+                  <div className="rounded-3xl border border-[#222] bg-[#080808]/40 overflow-hidden shadow-sm">
+                    <div className="px-6 py-5 border-b border-[#1a1a1a] flex justify-between items-center bg-[#0d0d0d]/30 backdrop-blur-sm">
+                      <div className="flex items-center gap-3">
+                        <Calendar size={18} className="text-[#555]" />
+                        <h3 className="text-xs font-black text-white uppercase tracking-[2px]">Trade Journal</h3>
+                      </div>
+                      <div className="flex gap-1 bg-[#111] p-1 rounded-xl">
+                        {(['IDX', 'CRYPTO', 'CFD'] as const).map((cat) => (
+                          <button
+                            key={cat}
+                            onClick={() => setActiveMarketFilter(cat)}
+                            className={cn(
+                              "px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-[1px] transition-all",
+                              activeMarketFilter === cat ? "bg-[var(--color-gold)] text-black" : "text-[#444] hover:text-white"
+                            )}
+                          >
+                            {cat === 'IDX' ? 'IDX Stocks' : cat === 'CRYPTO' ? 'Crypto' : 'CFD'}
+                          </button>
+                        ))}
+                      </div>
+                      <span className="text-[10px] font-bold text-[#444] uppercase tracking-widest">{trades.filter(t => t.marketCategory === activeMarketFilter).length} Transaksi</span>
+                    </div>
+                    <div className="overflow-x-auto p-2">
+                      <table className="w-full border-separate border-spacing-y-2">
+                        <thead>
+                          <tr className="text-left">
+                            <th className="py-2 px-4 text-[9px] font-black uppercase tracking-[2px] text-[#444]">Identitas</th>
+                            <th className="py-2 px-4 text-[9px] font-black uppercase tracking-[2px] text-[#444]">Volume</th>
+                            <th className="py-2 px-4 text-[9px] font-black uppercase tracking-[2px] text-[#444] text-right">Entry</th>
+                            <th className="py-2 px-4 text-[9px] font-black uppercase tracking-[2px] text-[#444] text-right">Valuasi</th>
+                            <th className="py-2 px-4 text-[9px] font-black uppercase tracking-[2px] text-[#444] text-center">Risk</th>
+                          </tr>
+                        </thead>
+                        <tbody className="space-y-2">
+                          {trades.filter(t => t.marketCategory === activeMarketFilter).length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="py-16 text-center text-[#333] font-black uppercase tracking-[3px]">Belum ada transaksi di {activeMarketFilter}</td>
+                            </tr>
+                          ) : (
+                             trades.filter(t => t.marketCategory === activeMarketFilter).map((trade) => {
+                              let riskColorItem = "bg-[#111] text-[#555] border-[#222]";
+                              let riskTextItem = "-";
+                              let displayRiskAmountItem: number | null = null;
+                              if (trade.plannedStopLoss && trade.quantity && totalCapital > 0) {
+                                const riskAmount = Math.abs(trade.entryPrice - trade.plannedStopLoss) * trade.quantity;
+                                displayRiskAmountItem = riskAmount;
+                                if (riskAmount > 0) {
+                                    const riskPercent = (riskAmount / totalCapital) * 100;
+                                    riskTextItem = `${riskPercent.toFixed(2)}%`;
+                                    if (riskPercent <= 1) {
+                                        riskColorItem = "bg-emerald-500/10 text-emerald-500 border-emerald-500/30";
+                                    } else if (riskPercent <= 2) {
+                                        riskColorItem = "bg-[var(--color-gold)]/10 text-[var(--color-gold)] border-[var(--color-gold)]/50";
+                                    } else {
+                                        riskColorItem = "bg-rose-500/10 text-rose-500 border-rose-500/50";
+                                    }
+                                }
+                              }
+
+                              return (
+                              <tr 
+                                key={trade.id} 
+                                className="group bg-[#0d0d0d] hover:bg-[#111] transition-all rounded-xl relative cursor-pointer"
+                                onClick={() => setViewingTrade(trade)}
+                              >
+                                <td className="py-4 px-4 first:rounded-l-xl">
+                                  <div className="flex flex-col">
+                                    <span className="font-black text-white tracking-widest text-sm group-hover:text-[var(--color-gold)] transition-colors">{trade.symbol}</span>
+                                    <div className="flex items-center gap-2 mt-1">
+                                      <span className={cn(
+                                        "text-[8px] font-black uppercase tracking-[1.5px] px-1.5 py-0.5 rounded-sm",
+                                        trade.type === 'BUY' ? "bg-emerald-500/10 text-emerald-500" : "bg-rose-500/10 text-rose-500"
+                                      )}>
+                                        {trade.type}
+                                      </span>
+                                      <span className="text-[9px] font-mono text-[#444] font-bold">{trade.date}</span>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="py-4 px-4 font-mono font-bold text-[#888] text-xs">
+                                  {trade.quantity / 100} Lots
+                                  <div className="text-[8px] text-[#444] uppercase tracking-tighter mt-1">{trade.quantity.toLocaleString()} Shares</div>
+                                </td>
+                                <td className="py-4 px-4 text-right font-mono font-bold text-white text-xs">
+                                  Rp {trade.entryPrice.toLocaleString("id-ID")}
+                                </td>
+                                <td className="py-4 px-4 text-right text-xs font-black text-[var(--color-gold)] font-mono">
+                                  {isBalanceHidden ? "••••••••" : `Rp ${(trade.entryPrice * trade.quantity).toLocaleString("id-ID")}`}
+                                </td>
+                                <td className="py-4 px-4 text-center last:rounded-r-xl">
+                                  <div className="flex flex-col items-center gap-1">
+                                    <div className={cn("inline-flex px-1.5 py-0.5 rounded border text-[10px] font-black font-mono tracking-wider", riskColorItem)}>
+                                      {riskTextItem}
+                                    </div>
+                                    {displayRiskAmountItem !== null && displayRiskAmountItem > 0 && (
+                                       <span className="text-[9px] font-bold text-[#666] font-mono tracking-wider">
+                                          Rp {displayRiskAmountItem.toLocaleString("id-ID")}
+                                       </span>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            )})
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: Insights and Metrics */}
+                <div className="lg:col-span-4 space-y-8">
+                  {/* Performance Analytics Card */}
+                  <div className="rounded-3xl border border-[#2a2a2a] bg-[#0d0d0d] p-6 shadow-xl relative overflow-hidden group">
+                    <div className="absolute -right-8 -top-8 w-24 h-24 bg-[var(--color-gold)]/5 rounded-full blur-2xl group-hover:bg-[var(--color-gold)]/10 transition-all"></div>
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="p-2.5 rounded-xl bg-[var(--color-gold)]/10 text-[var(--color-gold)] border border-[var(--color-gold)]/20 shadow-inner">
+                        <TrendingUp size={22} className="group-hover:scale-110 transition-transform" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-black text-white uppercase tracking-tight">Journal Analytics</h3>
+                        <p className="text-[9px] font-bold text-[#444] uppercase tracking-[2px]">Deep Performance Insights</p>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-5">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="p-4 rounded-2xl bg-[#080808] border border-[#1a1a1a] shadow-inner">
+                          <span className="block text-[8px] font-black text-[#333] uppercase tracking-[2px] mb-2">Avg Profit</span>
+                          <span className="text-xl font-black text-emerald-400 group-hover:text-emerald-300 transition-colors">
+                            +{portfolioStats.avgProfit.toFixed(1)}%
+                          </span>
+                          <div className="mt-2 text-[7px] text-[#444] uppercase font-bold tracking-widest">Target: 4.0%</div>
+                        </div>
+                        <div className="p-4 rounded-2xl bg-[#080808] border border-[#1a1a1a] shadow-inner">
+                          <span className="block text-[8px] font-black text-[#333] uppercase tracking-[2px] mb-2">Avg Loss</span>
+                          <span className="text-xl font-black text-rose-500 group-hover:text-rose-400 transition-colors">
+                            -{portfolioStats.avgLoss.toFixed(1)}%
+                          </span>
+                          <div className="mt-2 text-[7px] text-[#444] uppercase font-bold tracking-widest">Max: 3.0%</div>
+                        </div>
+                      </div>
+                      <div className="p-4 rounded-2xl bg-[#0a0a0a] border border-[#1a1a1a]">
+                        <div className="flex justify-between items-center mb-3">
+                          <span className="text-[9px] font-black text-[#555] uppercase tracking-[2px]">Portfolio Health</span>
+                          <span className="text-[9px] font-black text-emerald-500 uppercase tracking-[1px]">Robust</span>
+                        </div>
+                        <div className="flex gap-1 h-1.5">
+                          {[1, 1, 1, 1, 0, 0, 0].map((v, i) => (
+                             <div key={i} className={cn("flex-1 rounded-full", v ? "bg-[var(--color-gold)]/60" : "bg-[#1a1a1a]")}></div>
+                          ))}
+                        </div>
+                        <p className="mt-3 text-[9px] text-[#555] italic leading-tight">Portofolio Anda memiliki kontrol risiko yang baik dengan drawdown minimal.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* AI Advisor Call-to-action */}
+                  <div className="rounded-3xl border border-dashed border-[var(--color-gold)]/30 bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-8 flex flex-col items-center text-center">
+                    <div className="relative mb-6">
+                      <div className="absolute inset-0 bg-[var(--color-gold)]/20 blur-2xl rounded-full scale-110"></div>
+                      <div className="relative w-16 h-16 rounded-2xl bg-[#000] border border-[var(--color-gold)]/20 flex items-center justify-center text-[var(--color-gold)]">
+                        <Sparkles size={32} />
+                      </div>
+                    </div>
+                    <h4 className="text-lg font-black text-white uppercase tracking-tight mb-2">Smart AI Advisor</h4>
+                    <p className="text-xs text-[#555] font-medium leading-relaxed mb-8 max-w-[220px]">Dapatkan analisis mendalam berbasis GenAI untuk mengoptimalkan strategi trading Anda secara personal.</p>
+                    <button className="w-full py-4 bg-white hover:bg-[var(--color-gold)] text-black font-black uppercase text-[10px] tracking-[2.5px] rounded-2xl shadow-xl transition-all active:scale-[0.98]">
+                      Analisis Journal Sekarang
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <LoginPage onLoginSuccess={() => setIsLoggedIn(true)} />
+          )
+        )}
+
+        {activeTab === "Profile" && (
+          <ProfileView 
+            isLoggedIn={isLoggedIn} 
+            totalCapital={totalCapital}
+            setTotalCapital={setTotalCapital}
+            onLogout={() => {
+              setIsLoggedIn(false);
+              setActiveTab("Dashboard");
+            }} 
+          />
+        )}
       </main>
 
-      <footer className="border-t border-neutral-200 bg-white py-8 dark:border-neutral-800 dark:bg-neutral-950">
+      <footer className="border-t border-[#222] bg-[#000] py-12">
         <div className="mx-auto max-w-7xl px-4 text-center sm:px-6 lg:px-8">
-          <p className="text-sm text-neutral-500">
-            © 2026 Research CNHL. Data disediakan oleh simulasi pasar real-time.
+          <div className="font-heading text-xl font-black text-white mb-4 uppercase tracking-[2px]">
+             CNHL Research<span className="text-[var(--color-gold)]">.</span>
+          </div>
+          <p className="text-sm text-[#555] font-bold uppercase tracking-[1px]">
+            © 2026 Research CNHL. Terminal Data Protokol Real-Time.
           </p>
-          <div className="mt-4 flex justify-center gap-6">
+          <div className="mt-8 flex justify-center gap-8">
             <a
               href="#"
-              className="text-xs font-medium text-neutral-400 hover:text-blue-500"
+              className="text-[10px] font-black uppercase tracking-[2px] text-[#444] hover:text-[var(--color-gold)] transition-colors"
             >
-              Kebijakan Privasi
+              Privacy Policy
             </a>
             <a
               href="#"
-              className="text-xs font-medium text-neutral-400 hover:text-blue-500"
+              className="text-[10px] font-black uppercase tracking-[2px] text-[#444] hover:text-[var(--color-gold)] transition-colors"
             >
-              Syarat & Ketentuan
+              Terms of Protocol
             </a>
             <a
               href="#"
-              className="text-xs font-medium text-neutral-400 hover:text-blue-500"
+              className="text-[10px] font-black uppercase tracking-[2px] text-[#444] hover:text-[var(--color-gold)] transition-colors"
             >
-              Hubungi Kami
+              Support Terminal
             </a>
           </div>
         </div>
       </footer>
+    </div>
+  );
+}
+
+function LoginPage({ onLoginSuccess }: { onLoginSuccess: () => void }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(false);
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (username === "admin" && password === "admin") {
+      onLoginSuccess();
+    } else {
+      setError(true);
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-center py-20 animate-in fade-in zoom-in duration-500">
+      <div className="w-full max-w-sm bg-[#080808] border border-[#2a2a2a] p-8 rounded-3xl shadow-2xl">
+        <h2 className="text-white font-black text-2xl uppercase tracking-[2px] mb-6 text-center">Login Access</h2>
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div className="relative">
+            <User className="absolute left-3 top-3.5 text-[#555]" size={18} />
+            <input
+              type="text"
+              placeholder="Username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className={cn("w-full bg-[#111] border rounded-xl py-3 pl-10 pr-4 text-white font-bold outline-none", error ? "border-rose-500" : "border-[#222]")}
+            />
+          </div>
+          <div className="relative">
+            <Lock className="absolute left-3 top-3.5 text-[#555]" size={18} />
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className={cn("w-full bg-[#111] border rounded-xl py-3 pl-10 pr-4 text-white font-bold outline-none", error ? "border-rose-500" : "border-[#222]")}
+            />
+          </div>
+          <button
+            type="submit"
+            className="w-full bg-[var(--color-gold)] text-black font-black uppercase text-[10px] tracking-[2px] py-4 rounded-xl hover:bg-[var(--color-gold-hover)] transition-all active:scale-95"
+          >
+            Masuk Terminal
+          </button>
+          {error && <p className="text-rose-500 text-xs font-bold text-center mt-2">Username/Password Salah!</p>}
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ProfileView({ 
+  isLoggedIn, 
+  onLogout,
+  totalCapital,
+  setTotalCapital
+}: { 
+  isLoggedIn: boolean; 
+  onLogout: () => void;
+  totalCapital: number;
+  setTotalCapital: (val: number) => void; 
+}) {
+  if (!isLoggedIn) {
+    return (
+      <div className="py-20 text-center animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="inline-flex p-6 rounded-3xl bg-rose-500/10 border border-rose-500/20 text-rose-500 mb-6">
+          <Lock size={48} />
+        </div>
+        <h2 className="text-3xl font-black text-white uppercase tracking-tighter mb-4">Akses Terbatas</h2>
+        <p className="text-[#555] font-bold uppercase tracking-wider mb-8">Silakan login di menu Portfolio terlebih dahulu</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8">
+      <div className="relative overflow-hidden rounded-3xl border border-[#2a2a2a] bg-[#0d0d0d] p-8 shadow-2xl">
+        <div className="absolute top-0 right-0 w-1/3 h-full bg-gradient-to-l from-[var(--color-gold)]/5 to-transparent pointer-events-none"></div>
+        <div className="flex flex-col md:flex-row items-center gap-8">
+           <div className="w-32 h-32 rounded-3xl bg-[#111] border-2 border-[var(--color-gold)] flex items-center justify-center text-[var(--color-gold)] shadow-[0_0_30px_rgba(212,175,55,0.1)]">
+              <User size={64} />
+           </div>
+           <div className="flex-1 text-center md:text-left">
+              <div className="flex items-center justify-center md:justify-start gap-2 mb-2">
+                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                <span className="text-[10px] font-black uppercase tracking-[3px] text-[var(--color-gold)]">Admin Privileged Account</span>
+              </div>
+              <h2 className="text-4xl font-black text-white tracking-tighter uppercase mb-4">Admin Research CJ</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-md">
+                 <div className="bg-[#050505] p-4 rounded-xl border border-[#1a1a1a]">
+                    <span className="block text-[8px] font-black text-[#555] uppercase tracking-widest mb-1">Username</span>
+                    <span className="text-sm font-bold text-white">admin</span>
+                 </div>
+                 <div className="bg-[#050505] p-4 rounded-xl border border-[#1a1a1a]">
+                    <span className="block text-[8px] font-black text-[#555] uppercase tracking-widest mb-1">Status</span>
+                    <span className="text-sm font-bold text-emerald-500 uppercase tracking-widest">Authorized</span>
+                 </div>
+              </div>
+           </div>
+           <button 
+             onClick={onLogout}
+             className="px-8 py-4 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-[10px] font-black uppercase tracking-[2px] transition-all active:scale-95 shadow-xl"
+           >
+             Logout Session
+           </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {[
+          { label: "Account ID", value: "CNHL-2026-X88" },
+          { label: "Auth Level", value: "SUPER-ADMIN" },
+          { label: "Last Login", value: new Date().toLocaleTimeString() }
+        ].map((item, i) => (
+          <div key={i} className="p-6 rounded-2xl border border-[#1a1a1a] bg-[#0d0d0d]">
+             <span className="block text-[8px] font-black text-[#555] uppercase tracking-widest mb-2">{item.label}</span>
+             <span className="text-sm font-black text-white uppercase tracking-tighter">{item.value}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="p-8 rounded-3xl border border-[#2a2a2a] bg-[#0d0d0d] shadow-2xl relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-1/3 h-full bg-gradient-to-r from-emerald-500/5 to-transparent pointer-events-none"></div>
+        <h3 className="text-sm font-black text-white uppercase tracking-wider mb-6 flex items-center gap-2">
+          <TrendingUp size={16} className="text-emerald-500" />
+          Financial Setup
+        </h3>
+        <div className="max-w-sm">
+          <label className="block text-[10px] font-black text-[#555] uppercase tracking-widest mb-3">Total Capital (IDR)</label>
+          <div className="relative">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white font-black text-sm">Rp</span>
+            <input
+              type="number"
+              value={totalCapital}
+              onChange={(e) => setTotalCapital(Number(e.target.value))}
+              className="w-full bg-[#111] border border-[#222] rounded-xl py-4 pl-12 pr-4 text-white font-bold text-lg outline-none focus:border-[var(--color-gold)] transition-colors"
+              placeholder="100000000"
+            />
+          </div>
+          <p className="mt-3 text-[10px] text-[#555] font-bold">Capital ini digunakan sebagai base kalkulasi risk parameter trade plan secara otomatis.</p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1576,6 +2253,7 @@ function Card({
   className,
   titleClassName,
   headerAction,
+  variant = "default",
 }: {
   title: string;
   children: React.ReactNode;
@@ -1583,27 +2261,37 @@ function Card({
   className?: string;
   titleClassName?: string;
   headerAction?: React.ReactNode;
+  variant?: "default" | "seamless";
 }) {
+  const isSeamless = variant === "seamless";
+  
   return (
     <motion.section
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
       className={cn(
-        "relative overflow-hidden rounded-[2rem] sm:rounded-[2.5rem] border border-neutral-100 bg-white p-5 sm:p-6 lg:p-8 shadow-sm ring-1 ring-black/5 dark:border-neutral-800 dark:bg-neutral-900/40 dark:ring-white/5",
+        "relative overflow-hidden transition-all duration-500",
+        isSeamless 
+          ? "bg-transparent p-0 border-0 shadow-none" 
+          : "border border-[#2a2a2a] bg-[var(--color-bg-news)] p-6 sm:p-8 shadow-[0_8px_30px_rgba(0,0,0,0.5)] rounded-2xl",
         className,
       )}
     >
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className={cn(
+        "mb-8 flex items-center justify-between border-b border-[#2a2a2a] pb-4",
+        isSeamless && "border-white/5"
+      )}>
+        <div className="flex items-center gap-4">
           {icon && (
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-neutral-50 dark:bg-neutral-800">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#111] border border-[#333] text-[var(--color-gold)]">
               {icon}
             </div>
           )}
           <h2
             className={cn(
-              "text-lg font-bold tracking-tight text-neutral-800 dark:text-white",
+              "font-heading text-2xl font-bold tracking-tight text-white",
+              isSeamless && "text-3xl font-extrabold tracking-tighter",
               titleClassName,
             )}
           >
@@ -1668,12 +2356,12 @@ function StockDetailModal({
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="relative flex w-full max-w-4xl max-h-[90vh] flex-col overflow-hidden rounded-[2rem] sm:rounded-[2.5rem] bg-white shadow-2xl dark:bg-neutral-900"
+        className="relative flex w-full max-w-4xl max-h-[90vh] flex-col overflow-hidden rounded-2xl bg-[#0a0a0a] border border-[#2a2a2a] shadow-[0_20px_50px_rgba(0,0,0,1)]"
       >
-        <div className="absolute top-6 right-6 z-10 rounded-full bg-white/50 backdrop-blur-sm dark:bg-neutral-900/50">
+        <div className="absolute top-6 right-6 z-10">
           <button
             onClick={onClose}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-neutral-500 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-[#111] border border-[#333] text-[#888] hover:text-white transition-colors"
           >
             <RefreshCw className="rotate-45" size={20} />
           </button>
@@ -1681,49 +2369,49 @@ function StockDetailModal({
 
         <div className="flex-1 overflow-y-auto p-8 lg:p-12">
           <div className="mb-8">
-            <div className="flex items-center gap-3">
-              <span className="text-4xl font-black tracking-tighter sm:text-5xl">
+            <div className="flex items-center gap-4">
+              <span className="font-heading text-4xl font-black tracking-tighter sm:text-5xl text-white">
                 {stock.symbol}
               </span>
               <div
                 className={cn(
-                  "flex items-center gap-1 rounded-full px-3 py-1 text-sm font-bold",
+                  "flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-[1px]",
                   stock.change >= 0
-                    ? "bg-green-500/10 text-green-500"
-                    : "bg-red-500/10 text-red-500",
+                    ? "bg-[rgba(0,234,96,0.1)] text-[var(--color-perf-up)] border border-[rgba(0,234,96,0.2)]"
+                    : "bg-[rgba(255,59,59,0.1)] text-[var(--color-perf-down)] border border-[rgba(255,59,59,0.2)]",
                 )}
               >
                 {stock.change >= 0 ? (
-                  <TrendingUp size={16} />
+                  <TrendingUp size={14} />
                 ) : (
-                  <TrendingDown size={16} />
+                  <TrendingDown size={14} />
                 )}
                 {stock.change}%
               </div>
             </div>
-            <h3 className="mt-1 text-xl font-bold text-neutral-400">
+            <h3 className="mt-2 text-xl font-bold text-[#888] font-heading">
               {stock.name}
             </h3>
-            <div className="mt-4 flex gap-2">
+            <div className="mt-6 flex gap-3">
               <span
                 className={cn(
-                  "rounded-full px-3 py-1 text-xs font-bold tracking-widest",
+                  "rounded-sm px-3 py-1 text-[10px] font-black tracking-[2px] uppercase",
                   detail?.report?.rating.includes("BUY")
-                    ? "bg-green-600 text-white"
-                    : "bg-neutral-600 text-white",
+                    ? "bg-[var(--color-perf-up)] text-black"
+                    : "bg-[#333] text-white",
                 )}
               >
                 {detail?.report?.rating || "BUY"}
               </span>
               {detail && (
-                <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                <span className="rounded-sm bg-[#111] border border-[#333] px-3 py-1 text-[10px] font-bold text-[var(--color-gold)] uppercase tracking-[1px]">
                   Target: Rp {detail.report.targetPrice.toLocaleString("id-ID")}
                 </span>
               )}
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-6 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-6 sm:grid-cols-4 border-y border-[#222] py-8 mb-8">
             <Metric
               label="Harga Terakhir"
               value={`Rp ${stock.price.toLocaleString("id-ID")}`}
@@ -1733,7 +2421,7 @@ function StockDetailModal({
             <Metric label="Volume" value="45.2 jt" />
           </div>
 
-          <div className="mt-8 h-[400px] w-full overflow-hidden rounded-2xl border border-neutral-100 dark:border-neutral-800">
+          <div className="mt-8 h-[400px] w-full overflow-hidden rounded-xl border border-[#2a2a2a] shadow-inner bg-black">
             <AdvancedRealTimeChart
               symbol={`IDX:${stock.symbol}`}
               theme="dark"
@@ -1743,6 +2431,7 @@ function StockDetailModal({
               hide_side_toolbar={true}
               hide_top_toolbar={true}
               timezone="Asia/Jakarta"
+              backgroundColor="#000000"
             />
           </div>
 
@@ -1750,205 +2439,148 @@ function StockDetailModal({
             <div className="mt-12 space-y-12">
               {/* Part I */}
               <section>
-                <h4 className="mb-4 flex items-center gap-2 border-b border-neutral-100 pb-2 text-lg font-bold text-neutral-800 dark:border-neutral-800 dark:text-white">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-xs text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
-                    1
+                <h4 className="mb-6 flex items-center gap-3 border-b border-[#222] pb-3 font-heading text-2xl font-bold text-white">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--color-gold)] text-[var(--color-gold)] text-xs font-black">
+                    I
                   </span>
-                  Framework 4W & MPPT (Makro & Sentimen)
+                  Framework 4W & MPPT
                 </h4>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-xl bg-neutral-50 p-4 dark:bg-neutral-800/50">
-                    <div className="mb-1 text-xs font-bold uppercase tracking-wider text-blue-500">
-                      Why (Sentimen)
+                  {[
+                    { label: "Why (Sentimen)", desc: detail.framework4W.why },
+                    { label: "What (Fundamental)", desc: detail.framework4W.what },
+                    { label: "Where (Technical Zone)", desc: detail.framework4W.where },
+                    { label: "When (Timing)", desc: detail.framework4W.when },
+                  ].map((item, idx) => (
+                    <div key={idx} className="rounded-xl border border-[#222] bg-[#080808] p-5 hover:border-[#333] transition-colors">
+                      <div className="mb-2 text-[10px] font-black uppercase tracking-[2px] text-[var(--color-gold)]">
+                        {item.label}
+                      </div>
+                      <p className="text-sm text-[#aaa] leading-relaxed">
+                        {item.desc}
+                      </p>
                     </div>
-                    <p className="text-sm dark:text-neutral-300">
-                      {detail.framework4W.why}
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-neutral-50 p-4 dark:bg-neutral-800/50">
-                    <div className="mb-1 text-xs font-bold uppercase tracking-wider text-blue-500">
-                      What (Fundamental)
-                    </div>
-                    <p className="text-sm dark:text-neutral-300">
-                      {detail.framework4W.what}
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-neutral-50 p-4 dark:bg-neutral-800/50">
-                    <div className="mb-1 text-xs font-bold uppercase tracking-wider text-blue-500">
-                      Where (Technical Zone)
-                    </div>
-                    <p className="text-sm dark:text-neutral-300">
-                      {detail.framework4W.where}
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-neutral-50 p-4 dark:bg-neutral-800/50">
-                    <div className="mb-1 text-xs font-bold uppercase tracking-wider text-blue-500">
-                      When (Timing)
-                    </div>
-                    <p className="text-sm dark:text-neutral-300">
-                      {detail.framework4W.when}
-                    </p>
-                  </div>
+                  ))}
                 </div>
               </section>
 
               {/* Part II */}
               <section>
-                <h4 className="mb-4 flex items-center gap-2 border-b border-neutral-100 pb-2 text-lg font-bold text-neutral-800 dark:border-neutral-800 dark:text-white">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-purple-100 text-xs text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">
-                    2
+                <h4 className="mb-6 flex items-center gap-3 border-b border-[#222] pb-3 font-heading text-2xl font-bold text-white">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--color-gold)] text-[var(--color-gold)] text-xs font-black">
+                    II
                   </span>
-                  23-Point Technical Protocol (Key Signals)
+                  23-Point Technical Protocol
                 </h4>
-                <ul className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-3 gap-x-8">
                   {detail.technicalSignals.map((sig, idx) => (
-                    <li
+                    <div
                       key={idx}
-                      className="flex items-start gap-3 text-sm dark:text-neutral-300"
+                      className="flex items-start gap-3 text-sm text-[#888] border-b border-[rgba(255,255,255,0.02)] pb-2"
                     >
                       <ShieldCheck
                         size={16}
-                        className="mt-0.5 shrink-0 text-purple-500"
+                        className="mt-0.5 shrink-0 text-[var(--color-gold)]"
                       />
                       <span>{sig}</span>
-                    </li>
+                    </div>
                   ))}
-                </ul>
+                </div>
               </section>
 
               {/* Part III: Intraday Trading Plan */}
-              <div className="rounded-2xl border-2 border-blue-500/20 bg-blue-50/50 p-6 dark:border-blue-500/10 dark:bg-blue-900/10">
-                <div className="mb-6 flex items-center justify-between">
-                  <h3 className="text-lg font-bold text-blue-900 dark:text-blue-100">
-                    <span className="mr-3 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-blue-200 text-sm text-blue-700 dark:bg-blue-800 dark:text-blue-300">
-                      3
-                    </span>
-                    Intraday Trading Plan
-                  </h3>
-                  <span className="rounded-full bg-blue-100 px-3 py-1.5 text-xs font-bold text-blue-700 dark:bg-blue-900/50 dark:text-blue-400">
+              <div className="rounded-2xl border border-[rgba(212,175,55,0.2)] bg-[rgba(212,175,55,0.05)] p-8">
+                <div className="mb-8 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--color-gold)] text-black">
+                      <Zap size={24} fill="black" />
+                    </div>
+                    <div>
+                      <h4 className="font-heading text-2xl font-bold text-white leading-none mb-1">Trading Strategy</h4>
+                      <p className="text-[11px] font-bold uppercase tracking-[1px] text-[var(--color-gold)]">Intraday Protocol Active</p>
+                    </div>
+                  </div>
+                  <span className="rounded-sm bg-[rgba(0,234,96,0.1)] border border-[rgba(0,234,96,0.2)] px-3 py-1.5 text-[10px] font-black text-[var(--color-perf-up)] uppercase tracking-[1px]">
                     4W & MPPT Approved
                   </span>
                 </div>
 
                 <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-                  <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-neutral-900/50">
-                    <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-neutral-400">
-                      Pivot Point
-                    </span>
-                    <span className="text-xl font-bold text-neutral-800 dark:text-neutral-200">
-                      Rp {detail.report.pivots.pivot.toLocaleString("id-ID")}
-                    </span>
-                    <p className="mt-2 text-xs leading-relaxed text-neutral-500">
-                      Fokus pantulan utama (Baseline MPPT).
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-neutral-900/50">
-                    <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-neutral-400">
-                      Target Price (TP)
-                    </span>
-                    <span className="text-xl font-bold text-emerald-600 dark:text-emerald-400">
-                      Rp {detail.report.pivots.r1.toLocaleString("id-ID")} - Rp{" "}
-                      {detail.report.pivots.r2.toLocaleString("id-ID")}
-                    </span>
-                    <p className="mt-2 text-xs leading-relaxed text-neutral-500">
-                      Take profit melihat resistance 1 & 2 terdekat.
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-neutral-900/50">
-                    <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-neutral-400">
-                      Stop Loss (SL)
-                    </span>
-                    <span className="text-xl font-bold text-red-600 dark:text-red-400">
-                      {"<"} Rp {detail.report.stopLoss.toLocaleString("id-ID")}
-                    </span>
-                    <p className="mt-2 text-xs leading-relaxed text-neutral-500">
-                      Batas toleransi risiko intraday berdasarkan support.
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-neutral-900/50">
-                    <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-neutral-400">
-                      Horizon
-                    </span>
-                    <span className="text-xl font-bold text-blue-600 dark:text-blue-400">
-                      Intraday (1H-4H)
-                    </span>
-                    <p className="mt-2 text-xs leading-relaxed text-neutral-500">
-                      Validasi buy jika breakout 23-Point Checklist.
-                    </p>
-                  </div>
+                  {[
+                    { label: "Pivot Point", value: `Rp ${detail.report.pivots.pivot.toLocaleString("id-ID")}`, desc: "Baseline MPPT Core." },
+                    { label: "Target (TP)", value: `Rp ${detail.report.pivots.r1.toLocaleString("id-ID")}`, desc: "Resistance 1-2 Zone." },
+                    { label: "Stop Loss", value: `< Rp ${detail.report.stopLoss.toLocaleString("id-ID")}`, desc: "Risk tolerance limit.", color: "text-[var(--color-perf-down)]" },
+                    { label: "Horizon", value: "Intraday", desc: "1H-4H Timing Protocol.", color: "text-[var(--color-gold)]" },
+                  ].map((item, idx) => (
+                    <div key={idx}>
+                      <span className="mb-2 block text-[10px] font-black uppercase tracking-[2px] text-[#555]">
+                        {item.label}
+                      </span>
+                      <span className={cn("text-xl font-black font-heading", item.color || "text-white")}>
+                        {item.value}
+                      </span>
+                      <p className="mt-2 text-[11px] font-bold text-[#666] leading-snug">
+                        {item.desc}
+                      </p>
+                    </div>
+                  ))}
                 </div>
               </div>
 
               {/* Part IV */}
               <section>
-                <h4 className="mb-4 flex items-center gap-2 border-b border-neutral-100 pb-2 text-lg font-bold text-neutral-800 dark:border-neutral-800 dark:text-white">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-pink-100 text-xs text-pink-600 dark:bg-pink-900/30 dark:text-pink-400">
-                    4
+                <h4 className="mb-6 flex items-center gap-3 border-b border-[#222] pb-3 font-heading text-2xl font-bold text-white">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--color-gold)] text-[var(--color-gold)] text-xs font-black">
+                    III
                   </span>
-                  Strategi Eksekusi Scaling-In (DCA Model)
+                  Execution Strategy (Scaling-In)
                 </h4>
-                <div className="space-y-3 relative">
-                  <div className="absolute bottom-4 left-3.5 top-2 w-px bg-neutral-200 dark:bg-neutral-700"></div>
+                <div className="space-y-4 relative">
+                  <div className="absolute bottom-4 left-[15px] top-2 w-px bg-[#222]"></div>
 
-                  <div className="relative flex gap-4 pl-10">
-                    <div className="absolute left-1.5 top-1 h-4 w-4 rounded-full border-4 border-white bg-blue-500 shadow-sm dark:border-neutral-900"></div>
-                    <div className="w-full rounded-xl bg-neutral-50 p-3 text-sm dark:bg-neutral-800/50">
-                      <span className="block font-bold text-neutral-800 dark:text-neutral-200">
-                        Tranche 1 (25%)
-                      </span>
-                      <span className="text-neutral-600 dark:text-neutral-400">
-                        {detail.scalingIn.tranche1}
-                      </span>
+                  {[
+                    { label: "Tranche 1 (25%)", desc: detail.scalingIn.tranche1 },
+                    { label: "Tranche 2 (35%)", desc: detail.scalingIn.tranche2 },
+                    { label: "Tranche 3 (40%)", desc: detail.scalingIn.tranche3 },
+                  ].map((item, idx) => (
+                    <div key={idx} className="relative flex gap-6 pl-10">
+                      <div className="absolute left-[7px] top-1.5 h-4 w-4 rounded-full border-2 border-[#0a0a0a] bg-[var(--color-gold)] shadow-[0_0_10px_rgba(212,175,55,0.3)]"></div>
+                      <div className="w-full rounded-xl bg-[#080808] border border-[#222] p-4 text-sm hover:border-[#333] transition-colors">
+                        <span className="block font-black text-white text-[12px] uppercase tracking-[1px] mb-1">
+                          {item.label}
+                        </span>
+                        <span className="text-[#888] leading-relaxed">
+                          {item.desc}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-
-                  <div className="relative flex gap-4 pl-10">
-                    <div className="absolute left-1.5 top-1 h-4 w-4 rounded-full border-4 border-white bg-blue-500 shadow-sm dark:border-neutral-900"></div>
-                    <div className="w-full rounded-xl bg-neutral-50 p-3 text-sm dark:bg-neutral-800/50">
-                      <span className="block font-bold text-neutral-800 dark:text-neutral-200">
-                        Tranche 2 (35%)
-                      </span>
-                      <span className="text-neutral-600 dark:text-neutral-400">
-                        {detail.scalingIn.tranche2}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="relative flex gap-4 pl-10">
-                    <div className="absolute left-1.5 top-1 h-4 w-4 rounded-full border-4 border-white bg-blue-500 shadow-sm dark:border-neutral-900"></div>
-                    <div className="w-full rounded-xl bg-neutral-50 p-3 text-sm dark:bg-neutral-800/50">
-                      <span className="block font-bold text-neutral-800 dark:text-neutral-200">
-                        Tranche 3 (40%)
-                      </span>
-                      <span className="text-neutral-600 dark:text-neutral-400">
-                        {detail.scalingIn.tranche3}
-                      </span>
-                    </div>
-                  </div>
+                  ))}
                 </div>
               </section>
             </div>
           ) : (
             <div className="mt-10 space-y-6">
-              <div>
-                <h4 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-neutral-400">
+              <div className="p-6 rounded-xl border border-[#222] bg-[#080808]">
+                <h4 className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[2px] text-[var(--color-gold)] mb-4">
                   <BarChart3 size={16} />
-                  Analisis Singkat
+                  Institutional Analysis
                 </h4>
-                <p className="mt-3 text-lg leading-relaxed text-neutral-600 dark:text-neutral-300">
-                  {stock.reason} Saham ini menunjukkan tren akumulasi yang kuat
-                  dari investor institusi.
+                <p className="text-lg leading-relaxed text-[#aaa] font-medium italic">
+                  "{stock.reason}"
                 </p>
               </div>
             </div>
           )}
 
-          <div className="mt-10 flex gap-4">
-            <button className="flex-1 rounded-2xl bg-blue-600 py-4 font-bold text-white shadow-lg shadow-blue-500/20 transition-all hover:bg-blue-700 active:scale-95">
-              Beri Tahu Broker Eksekusi
+          <div className="mt-12 flex flex-wrap gap-4 pt-8 border-t border-[#222]">
+            <button className="flex-1 rounded-2xl bg-[var(--color-gold)] py-4 font-black text-black transition-all hover:bg-[var(--color-gold-hover)] active:scale-95 uppercase tracking-[1px] text-xs">
+              Execute Protocol
             </button>
-            <button className="flex-1 rounded-2xl bg-neutral-100 py-4 font-bold text-neutral-900 transition-all hover:bg-neutral-200 active:scale-95 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:bg-neutral-700">
-              Tambah ke Watchlist
+            <button
+               onClick={onClose}
+               className="flex-1 rounded-2xl bg-[#111] border border-[#333] py-4 font-black text-white hover:bg-[#222] transition-all uppercase tracking-[1px] text-xs"
+            >
+              Close Terminal
             </button>
           </div>
         </div>
@@ -1960,10 +2592,370 @@ function StockDetailModal({
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-xs font-bold uppercase tracking-wider text-neutral-400">
+      <div className="text-[10px] font-black uppercase tracking-[2px] text-[#555] mb-2">
         {label}
       </div>
-      <div className="mt-1 text-lg font-bold tracking-tight">{value}</div>
+      <div className="text-2xl font-black tracking-tight text-white font-heading">{value}</div>
+    </div>
+  );
+}
+
+function MarketSelectorModal({
+  onClose,
+  onSelect,
+}: {
+  onClose: () => void;
+  onSelect: (market: 'IDX' | 'CRYPTO' | 'CFD') => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="absolute inset-0 bg-neutral-950/80 backdrop-blur-md"
+      />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+        className="relative w-full max-w-sm overflow-hidden rounded-3xl bg-[#0a0a0a] border border-[#2a2a2a] p-8 shadow-[0_20px_50px_rgba(0,0,0,1)]"
+      >
+        <h3 className="font-heading text-xl font-black text-white uppercase tracking-tight mb-6 text-center">
+          Pilih Tipe Market
+        </h3>
+        <div className="flex flex-col gap-3">
+          {[
+            { label: 'IDX Stocks', value: 'IDX' },
+            { label: 'Crypto', value: 'CRYPTO' },
+            { label: 'CFD Market', value: 'CFD' }
+          ].map((cat) => (
+            <button
+              key={cat.value}
+              onClick={() => onSelect(cat.value as any)}
+              className="w-full py-4 rounded-xl bg-[#111] border border-[#222] hover:border-[var(--color-gold)] text-white font-black uppercase text-[10px] tracking-[2px] transition-all hover:bg-[var(--color-gold)]/10"
+            >
+              {cat.label}
+            </button>
+          ))}
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function TradeModal({
+  trade,
+  defaultMarket,
+  totalCapital,
+  onClose,
+  onSave,
+}: {
+  trade: Trade | null;
+  defaultMarket?: 'IDX' | 'CRYPTO' | 'CFD';
+  totalCapital: number;
+  onClose: () => void;
+  onSave: (tradeData: Partial<Trade>) => void;
+}) {
+  const [formData, setFormData] = useState<Partial<Trade>>(
+    trade || {
+      symbol: "",
+      entryPrice: 0,
+      quantity: 0,
+      date: new Date().toISOString().split('T')[0],
+      type: 'BUY',
+      status: 'OPEN',
+      marketCategory: defaultMarket || 'IDX',
+      notes: "",
+    }
+  );
+
+  const [lotValue, setLotValue] = useState(trade ? trade.quantity / 100 : 0);
+  const [errors, setErrors] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (formData.marketCategory === 'IDX') {
+      const ep = formData.plannedEntryPrice;
+      const sl = formData.plannedStopLoss;
+      const risk = formData.riskPerTrade;
+
+      if (ep && sl && risk && ep > sl) {
+        const riskPerShare = ep - sl;
+        const maxShares = risk / riskPerShare;
+        const calculatedLots = Math.floor(maxShares / 100);
+        
+        if (calculatedLots > 0 && calculatedLots !== lotValue) {
+          setLotValue(calculatedLots);
+          if (!formData.entryPrice) {
+             setFormData(prev => ({ ...prev, entryPrice: ep }));
+          }
+        }
+      }
+    }
+  }, [formData.plannedEntryPrice, formData.plannedStopLoss, formData.riskPerTrade, formData.marketCategory]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const newErrors: Record<string, boolean> = {};
+
+    if (formData.marketCategory === 'IDX') {
+      if (!formData.symbol) newErrors.symbol = true;
+      if (!formData.date) newErrors.date = true;
+      if (!formData.plannedEntryPrice) newErrors.plannedEntryPrice = true;
+      if (!formData.plannedStopLoss) newErrors.plannedStopLoss = true;
+      if (!formData.plannedTakeProfit) newErrors.plannedTakeProfit = true;
+      if (!formData.riskPerTrade) newErrors.riskPerTrade = true;
+      if (!formData.setupTrigger) newErrors.setupTrigger = true;
+      if (!formData.marketRegime) newErrors.marketRegime = true;
+      if (!formData.ihsgCondition) newErrors.ihsgCondition = true;
+      if (!formData.psychologicalState) newErrors.psychologicalState = true;
+      if (!formData.entryPrice) newErrors.entryPrice = true;
+      if (!lotValue) newErrors.lotValue = true;
+    } else {
+      if (!formData.symbol) newErrors.symbol = true;
+      if (!formData.date) newErrors.date = true;
+      if (!formData.entryPrice) newErrors.entryPrice = true;
+      if (!lotValue) newErrors.lotValue = true;
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+    
+    onSave({
+      ...formData,
+      quantity: lotValue * 100
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="absolute inset-0 bg-neutral-950/80 backdrop-blur-md"
+      />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+        className="relative w-full max-w-lg overflow-hidden rounded-3xl bg-[#0a0a0a] border border-[#2a2a2a] shadow-[0_20px_50px_rgba(0,0,0,1)] flex flex-col max-h-[90vh]"
+      >
+        <div className="p-8 overflow-y-auto flex-1 min-h-0">
+          <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center gap-4">
+              <div className="p-2 rounded-xl bg-[var(--color-gold)] text-black">
+                <Briefcase size={20} />
+              </div>
+              <h3 className="font-heading text-2xl font-black text-white uppercase tracking-tight">
+                {trade ? "Edit Entry" : (formData.marketCategory === 'IDX' ? "IDX Stocks" : "Catat Entry Baru")}
+              </h3>
+            </div>
+            <button
+              onClick={onClose}
+              className="text-[#444] hover:text-white transition-colors"
+            >
+              <RefreshCw className="rotate-45" size={24} />
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-6">
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[2px] text-[#555] ml-1">Symbol</label>
+                <input
+                  required
+                  type="text"
+                  placeholder="e.g. BBRI"
+                  value={formData.symbol}
+                  onChange={(e) => setFormData({ ...formData, symbol: e.target.value.toUpperCase() })}
+                  className={cn("w-full bg-[#111] border rounded-xl px-4 py-3 text-white font-bold transition-all outline-none uppercase", errors.symbol ? "border-red-500 animate-shake" : "border-[#222] focus:border-[var(--color-gold)] focus:ring-1 focus:ring-[var(--color-gold)]/20")}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[2px] text-[#555] ml-1">Tanggal Entry</label>
+                <input
+                  required
+                  type="date"
+                  value={formData.date}
+                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                  className={cn("w-full bg-[#111] border rounded-xl px-4 py-3 text-white font-bold transition-all outline-none", errors.date ? "border-red-500 animate-shake" : "border-[#222] focus:border-[var(--color-gold)] focus:ring-1 focus:ring-[var(--color-gold)]/20")}
+                />
+              </div>
+            </div>
+
+            {formData.marketCategory === 'IDX' && (
+              <div className="space-y-4 border border-[#222] p-5 rounded-2xl bg-[#080808]">
+                <h5 className="text-[10px] font-black uppercase tracking-[2px] text-[var(--color-gold)] mb-4">IDX Trade Metrics</h5>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[9px] uppercase tracking-widest text-[#444] ml-1">Planned Entry</label>
+                    <input type="number" placeholder="Rp" value={formData.plannedEntryPrice || ''} onChange={(e) => { setFormData({...formData, plannedEntryPrice: Number(e.target.value)}); setErrors(prev => ({...prev, plannedEntryPrice: false})); }} className={cn("w-full bg-[#111] border rounded-xl px-4 py-2.5 text-white text-xs font-bold outline-none", errors.plannedEntryPrice ? "border-red-500 animate-shake" : "border-[#222] focus:border-[#444]")} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] uppercase tracking-widest text-[#444] ml-1">Planned Cut Loss</label>
+                    <input type="number" placeholder="Rp" value={formData.plannedStopLoss || ''} onChange={(e) => { setFormData({...formData, plannedStopLoss: Number(e.target.value)}); setErrors(prev => ({...prev, plannedStopLoss: false})); }} className={cn("w-full bg-[#111] border rounded-xl px-4 py-2.5 text-white text-xs font-bold outline-none", errors.plannedStopLoss ? "border-red-500 animate-shake" : "border-[#222] focus:border-[#444]")} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] uppercase tracking-widest text-[#444] ml-1">Planned Take Profit</label>
+                    <input type="number" placeholder="Rp" value={formData.plannedTakeProfit || ''} onChange={(e) => { setFormData({...formData, plannedTakeProfit: Number(e.target.value)}); setErrors(prev => ({...prev, plannedTakeProfit: false})); }} className={cn("w-full bg-[#111] border rounded-xl px-4 py-2.5 text-white text-xs font-bold outline-none", errors.plannedTakeProfit ? "border-red-500 animate-shake" : "border-[#222] focus:border-[#444]")} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] uppercase tracking-widest text-[#444] ml-1">Risk Per Trade</label>
+                    <input type="number" placeholder="Rp" value={formData.riskPerTrade || ''} onChange={(e) => { setFormData({...formData, riskPerTrade: Number(e.target.value)}); setErrors(prev => ({...prev, riskPerTrade: false})); }} className={cn("w-full bg-[#111] border rounded-xl px-4 py-2.5 text-white text-xs font-bold outline-none", errors.riskPerTrade ? "border-red-500 animate-shake" : "border-[#222] focus:border-[#444]")} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <select value={formData.setupTrigger || ""} onChange={(e) => { setFormData({...formData, setupTrigger: e.target.value}); setErrors(prev => ({...prev, setupTrigger: false})); }} className={cn("w-full bg-[#111] border rounded-xl px-4 py-3 text-white text-xs font-bold outline-none", errors.setupTrigger ? "border-red-500 animate-shake" : "border-[#222]")}>
+                      <option value="">-- Setup Trigger --</option>
+                      <option value="MSB">Market Structure Break</option>
+                      <option value="OB_FVG">Order Block / FVG Rejection</option>
+                      <option value="POC">Volume Profile POC</option>
+                      <option value="Breakout">Breakout / Buy on Weakness</option>
+                  </select>
+
+                  <select value={formData.marketRegime || ""} onChange={(e) => { setFormData({...formData, marketRegime: e.target.value as any}); setErrors(prev => ({...prev, marketRegime: false})); }} className={cn("w-full bg-[#111] border rounded-xl px-4 py-3 text-white text-xs font-bold outline-none", errors.marketRegime ? "border-red-500 animate-shake" : "border-[#222]")}>
+                    <option value="">-- Market Regime --</option>
+                    <option value="Bullish">Bullish</option>
+                    <option value="Bearish">Bearish</option>
+                    <option value="Sideways">Sideways</option>
+                    <option value="Reversal">Reversal</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <select value={formData.ihsgCondition || ""} onChange={(e) => {
+                    const cond = e.target.value as any;
+                    let multiplier = 0;
+                    if (cond === 'Uptrend') multiplier = 1.0;
+                    else if (cond === 'Sideway') multiplier = 0.5;
+                    else if (cond === 'Downtrend') multiplier = 0.25;
+                    
+                    // Assuming Total Capital is accessible or set a default/get from context if needed.
+                    // Based on requirements, Risk = Capital * 0.01 * Value
+                    const risk = totalCapital * 0.01 * multiplier;
+                    
+                    setFormData({...formData, ihsgCondition: cond, riskPerTrade: risk}); 
+                    setErrors(prev => ({...prev, ihsgCondition: false, riskPerTrade: false}));
+                  }} className={cn("w-full bg-[#111] border rounded-xl px-4 py-3 text-white text-xs font-bold outline-none", errors.ihsgCondition ? "border-red-500 animate-shake" : "border-[#222]")}>
+                    <option value="">-- IHSG Condition --</option>
+                    <option value="Uptrend">Uptrend</option>
+                    <option value="Sideway">Sideway</option>
+                    <option value="Downtrend">Downtrend</option>
+                  </select>
+
+                  <select value={formData.psychologicalState || ""} onChange={(e) => { setFormData({...formData, psychologicalState: Number(e.target.value) as any}); setErrors(prev => ({...prev, psychologicalState: false})); }} className={cn("w-full bg-[#111] border rounded-xl px-4 py-3 text-white text-xs font-bold outline-none", errors.psychologicalState ? "border-red-500 animate-shake" : "border-[#222]")}>
+                    <option value="">-- Kondisi Psikologis (1-5) --</option>
+                    {[1,2,3,4,5].map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {formData.marketCategory !== 'IDX' && (
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[2px] text-[#555] ml-1">Type Transaksi</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, type: 'BUY' })}
+                    className={cn(
+                      "py-3 rounded-xl font-black text-[10px] uppercase tracking-[2px] transition-all border",
+                      formData.type === 'BUY' 
+                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" 
+                        : "bg-[#111] text-[#444] border-[#222] hover:border-[#333]"
+                    )}
+                  >
+                    BUY / LONG
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, type: 'SELL' })}
+                    className={cn(
+                      "py-3 rounded-xl font-black text-[10px] uppercase tracking-[2px] transition-all border",
+                      formData.type === 'SELL' 
+                        ? "bg-rose-500/10 text-rose-400 border-rose-500/30" 
+                        : "bg-[#111] text-[#444] border-[#222] hover:border-[#333]"
+                    )}
+                  >
+                    SELL / SHORT
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[2px] text-[#555] ml-1">
+                  Entry Price (Avg)
+                </label>
+                <input
+                  required
+                  type="number"
+                  placeholder="0"
+                  value={formData.entryPrice || ""}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    setFormData({ ...formData, entryPrice: val });
+                    setErrors(prev => ({...prev, entryPrice: false}));
+                  }}
+                  className={cn("w-full bg-[#111] border rounded-xl px-4 py-3 text-white font-mono font-bold transition-all outline-none", errors.entryPrice ? "border-red-500 animate-shake" : "border-[#222] focus:border-[var(--color-gold)]")}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[2px] text-[#555] ml-1">Quantity (Lots)</label>
+                <input
+                  required
+                  type="number"
+                  placeholder="0"
+                  value={lotValue || ""}
+                  onChange={(e) => { setLotValue(Number(e.target.value)); setErrors(prev => ({...prev, lotValue: false})); }}
+                  className={cn("w-full bg-[#111] border rounded-xl px-4 py-3 text-white font-mono font-bold transition-all outline-none", errors.lotValue ? "border-red-500 animate-shake" : "border-[#222] focus:border-[var(--color-gold)]")}
+                />
+              </div>
+            </div>
+
+            <div className="pt-4">
+              <div className="flex justify-between items-center mb-6 p-4 rounded-2xl bg-[#080808] border border-[#222]">
+                <span className="text-[10px] font-black uppercase tracking-[2px] text-[#555]">
+                  Estimasi Kapital Investasi
+                </span>
+                <div className="flex flex-col items-end">
+                  <span className="text-xl font-black text-[var(--color-gold)] font-mono tracking-tighter">
+                    Rp {((formData.entryPrice || formData.plannedEntryPrice || 0) * lotValue * 100).toLocaleString("id-ID")}
+                  </span>
+                  {formData.marketCategory === 'IDX' && (
+                    <span className="text-[10px] text-[#666] font-mono tracking-widest mt-1">{(lotValue * 100).toLocaleString("id-ID")} Lembar</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex gap-4">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="flex-1 py-4 rounded-2xl border border-[#222] text-[#666] font-black uppercase text-[10px] tracking-[2px] hover:bg-[#111] transition-all"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-4 rounded-2xl bg-[var(--color-gold)] text-black font-black uppercase text-[10px] tracking-[2px] hover:bg-[var(--color-gold-hover)] shadow-xl active:scale-95 transition-all"
+                >
+                  Simpan Entry
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </motion.div>
     </div>
   );
 }
@@ -1995,109 +2987,508 @@ function NewsDetailModal({
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={onClose}
-        className="absolute inset-0 bg-neutral-950/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-neutral-950/80 backdrop-blur-md"
       />
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="relative w-full max-w-2xl overflow-hidden rounded-[2rem] sm:rounded-[2.5rem] bg-white shadow-2xl dark:bg-neutral-900 max-h-[90vh] flex flex-col"
+        className="relative w-full max-w-2xl overflow-hidden rounded-2xl bg-[#0a0a0a] border border-[#2a2a2a] shadow-[0_20px_50px_rgba(0,0,0,1)] max-h-[90vh] flex flex-col"
       >
         <div className="absolute top-6 right-6 z-10">
           <button
             onClick={onClose}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-neutral-500 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-[#111] border border-[#333] text-[#888] hover:text-white transition-colors"
           >
             <RefreshCw className="rotate-45" size={20} />
           </button>
         </div>
 
         <div
-          className="p-6 sm:p-8 lg:p-12 overflow-y-auto"
+          className="p-8 lg:p-12 overflow-y-auto"
           style={{
             scrollbarWidth: "thin",
-            scrollbarColor: "#d4d4d8 transparent",
+            scrollbarColor: "#333 transparent",
           }}
         >
-          <div className="mb-6">
-            <div className="mb-4 flex flex-wrap items-center gap-3 text-sm font-bold">
-              <span className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 shadow-sm border border-blue-100 dark:border-blue-900 px-2.5 py-1 rounded-lg">
-                <Newspaper size={16} />
-                <span>{news.source}</span>
-              </span>
-              {news.sourceType && (
-                <span className="bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 px-2.5 py-1 rounded-lg shadow-sm">
-                  {news.sourceType}
-                </span>
-              )}
-              {news.impactType && (
-                <span className="bg-white dark:bg-neutral-950 shadow-sm border border-neutral-200 dark:border-neutral-800 text-neutral-700 dark:text-neutral-200 px-2.5 py-1 rounded-lg">
-                  {news.impactType}
-                </span>
-              )}
-              <span
-                className={cn(
-                  "px-2.5 py-1 rounded-lg shadow-sm border",
-                  scoreColor,
-                )}
-              >
-                Impact: {score}
-              </span>
+          <div className="mb-8">
+            <div className="flex flex-wrap items-center justify-between gap-6 px-1 mb-6">
+               <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg bg-[#050505] border border-emerald-500/10">
+                    <div className="w-[3px] h-3 bg-emerald-500/40 rounded-full"></div>
+                    <span className="text-[9px] font-black text-emerald-400/50 uppercase tracking-[3px] leading-none">
+                      {news.sourceType || "Berita"}
+                    </span>
+                  </div>
+                  <div className={cn("px-2.5 py-0.5 rounded border flex items-center gap-1.5",
+                    score >= 80 ? "bg-blue-500/5 border-blue-500/10 text-blue-500/60" :
+                    score < 50 ? "bg-red-500/5 border-red-500/10 text-red-500/60" :
+                    "bg-[#111] border-[#1a1a1a] text-[#333]"
+                  )}>
+                    <div className={cn("w-1 h-1 rounded-full animate-pulse",
+                      score >= 80 ? "bg-blue-400/40" :
+                      score < 50 ? "bg-red-400/40" :
+                      "bg-[#222]"
+                    )}></div>
+                    <span className="text-[7px] font-black uppercase tracking-[1px]">
+                      {score >= 80 ? "Critical Bullish" : score < 50 ? "Critical Bearish" : "Stable Neutral"}
+                    </span>
+                  </div>
+               </div>
+               
+               <div className="flex items-stretch rounded-full border border-[rgba(255,255,255,0.02)] overflow-hidden bg-[#111] h-5 shadow-[0_2px_10px_rgba(0,0,0,0.3)]">
+                 <div className={cn("flex items-center px-2 py-0.5", 
+                   score >= 80 ? "bg-gradient-to-r from-blue-600/70 to-indigo-700/70" : 
+                   score < 50 ? "bg-gradient-to-r from-red-600/70 to-rose-700/70" : 
+                   "bg-gradient-to-r from-neutral-800 to-neutral-900"
+                 )}>
+                   <span className={cn("text-[7px] font-black tracking-[1.5px] uppercase mt-px", 
+                     score >= 80 || score < 50 ? "text-white" : "text-white/10"
+                   )}>
+                     {news.impactType.toUpperCase()}
+                   </span>
+                 </div>
+                 <div className="flex items-center px-2 py-0.5 bg-[#050505]">
+                   <span className={cn("font-mono font-black text-[9px]",
+                     score >= 80 ? "text-blue-500/60" : 
+                     score < 50 ? "text-red-500/60" : 
+                     "text-[#333]"
+                   )}>
+                     {score}
+                   </span>
+                 </div>
+               </div>
             </div>
-
-            <h3 className="text-2xl font-black tracking-tight sm:text-3xl lg:text-4xl text-neutral-900 dark:text-white leading-tight">
+            <h3 className="font-heading text-4xl font-black text-white leading-[1.1] mb-6">
               {news.title}
             </h3>
-
-            <div className="mt-4 text-sm font-medium text-neutral-500 flex items-center gap-2">
-              <Calendar size={14} />
-              <span>{news.date}</span>
+            <div className="mt-4 p-3 bg-[#050505] border border-[#1a1a1a] rounded-lg flex items-center justify-between relative overflow-hidden">
+               <div className="absolute left-0 top-0 bottom-0 w-[1.5px] bg-[var(--color-gold)]/30"></div>
+               <div className="flex items-center gap-2.5">
+                  <motion.div 
+                    animate={{ 
+                      boxShadow: [
+                        "0 0 0px rgba(212,175,55,0)",
+                        "0 0 10px rgba(212,175,55,0.1)",
+                        "0 0 0px rgba(212,175,55,0)"
+                      ]
+                    }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                    className="p-1 rounded bg-[var(--color-gold)]/5 text-[var(--color-gold)]/60"
+                  >
+                    <Globe2 size={12} />
+                  </motion.div>
+                  <motion.span 
+                    animate={{ 
+                      textShadow: [
+                        "0 0 0px rgba(212,175,55,0)",
+                        "0 0 10px rgba(212,175,55,0.3)",
+                        "0 0 0px rgba(212,175,55,0)"
+                      ],
+                      color: ["#999", "#ccc", "#999"]
+                    }}
+                    transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+                    className="text-xs font-black uppercase tracking-wide"
+                  >
+                    {news.source}
+                  </motion.span>
+               </div>
+               
+               <div className="px-2.5 py-0.5 rounded bg-[#0a0a0a] border border-[#151515] text-[10px] font-mono font-bold text-[#333]">
+                 {news.date}
+               </div>
             </div>
           </div>
 
-          <div className="mt-8 space-y-6">
-            <div className="prose prose-neutral dark:prose-invert max-w-none">
-              <p className="text-lg leading-relaxed text-neutral-600 dark:text-neutral-300">
-                {news.summary}
-              </p>
+          <div className="prose prose-invert max-w-none">
+            <p className="text-lg text-[#aaa] leading-relaxed font-medium">
+              {news.summary}
+            </p>
+            <div className="mt-10 p-6 bg-[#080808]/50 border border-[rgba(255,255,255,0.03)] rounded-2xl relative overflow-hidden">
+               <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-[var(--color-gold)]/30"></div>
+               <h4 className="text-[10px] font-black uppercase tracking-[2px] text-[var(--color-gold)]/60 mb-4 flex items-center gap-2">
+                 <Zap size={12} />
+                 Deep Analysis Insights
+               </h4>
+               <p className="text-[15px] text-[#888] leading-relaxed italic relative z-10">
+                 Analisis model menunjukkan bahwa berita ini memiliki korelasi tinggi dengan pergerakan sektor {news.impactedSectors?.join(', ')}. Investor disarankan untuk memantau level likuiditas pada emiten terkait dalam 24 jam ke depan.
+               </p>
             </div>
           </div>
 
           {news.impactedSectors && news.impactedSectors.length > 0 && (
-            <div className="mt-8 p-4 bg-neutral-50 dark:bg-neutral-800/50 rounded-2xl border border-neutral-100 dark:border-neutral-800">
-              <h4 className="text-sm font-bold text-neutral-800 dark:text-neutral-200 mb-3 flex items-center gap-2">
-                <Zap size={16} className="text-yellow-500" />
-                Sektor Terdampak
-              </h4>
-              <div className="flex flex-wrap gap-2">
-                {news.impactedSectors.map((s) => (
-                  <span
-                    key={s}
-                    className="px-3 py-1.5 bg-white dark:bg-neutral-900 rounded-lg text-sm font-semibold text-neutral-700 dark:text-neutral-300 shadow-sm border border-neutral-200/50 dark:border-neutral-700/50"
-                  >
-                    {s}
-                  </span>
-                ))}
-              </div>
+            <div className="mt-10 p-6 bg-[#050505] border border-[#111] rounded-2xl relative overflow-hidden">
+               <div className="absolute left-0 top-1/4 bottom-1/4 w-0.5 bg-[#333]"></div>
+               <h4 className="text-[10px] font-black uppercase tracking-[2px] text-[#444] mb-4">Sektor Terdampak</h4>
+               <div className="flex flex-wrap gap-2">
+                 {news.impactedSectors.map((s) => (
+                   <span
+                     key={s}
+                     className="bg-[#0a0a0a] border border-[#1a1a1a] text-[#ccc] px-4 py-2 text-[11px] font-bold rounded-lg uppercase tracking-[1px] hover:border-[var(--color-gold)]/30 transition-colors shadow-inner"
+                   >
+                     {s}
+                   </span>
+                 ))}
+               </div>
             </div>
           )}
 
-          <div className="mt-10 flex flex-wrap gap-4 border-t border-neutral-100 pt-8 dark:border-neutral-800">
+          <div className="mt-10 flex flex-wrap gap-4 pt-8">
             <a
               href={news.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex-1 text-center rounded-2xl bg-blue-600 py-4 font-bold text-white shadow-lg shadow-blue-500/20 transition-all hover:bg-blue-700 active:scale-95"
+              className="flex-1 text-center rounded-2xl bg-[var(--color-gold)] py-4 font-bold text-black transition-all hover:bg-[var(--color-gold-hover)] active:scale-95"
             >
               Baca Artikel Asli
             </a>
             <button
               onClick={onClose}
-              className="flex-1 rounded-2xl bg-neutral-100 py-4 font-bold text-neutral-900 transition-all hover:bg-neutral-200 active:scale-95 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:bg-neutral-700"
+              className="flex-1 rounded-2xl bg-[#111] border border-[#333] py-4 font-bold text-white hover:bg-[#222] transition-all"
             >
               Tutup
             </button>
           </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function TradeDetailModal({ 
+  trade, 
+  totalCapital, 
+  onClose,
+  onEdit,
+  onClosePosition,
+  onAverage,
+  onUpdatePlan
+}: { 
+  trade: Trade; 
+  totalCapital: number; 
+  onClose: () => void;
+  onEdit: () => void;
+  onClosePosition: (price: number) => void;
+  onAverage: (newAvgPrice: number, newTotalQuantity: number) => void;
+  onUpdatePlan: (tp: number | undefined, sl: number | undefined) => void;
+}) {
+  const [currentPrice, setCurrentPrice] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [isAveraging, setIsAveraging] = useState(false);
+  const [isEditingPlan, setIsEditingPlan] = useState(false);
+  const [editTP, setEditTP] = useState<number | undefined>(trade.plannedTakeProfit);
+  const [editSL, setEditSL] = useState<number | undefined>(trade.plannedStopLoss);
+  const [avgEntryPrice, setAvgEntryPrice] = useState<number>(trade.entryPrice);
+  const [avgValuation, setAvgValuation] = useState<number>(0);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchPrice = async () => {
+      try {
+        setLoading(true);
+        if (trade.marketCategory === 'IDX') {
+             const res = await fetch(`/api/quote/${trade.symbol}`);
+             if (res.ok) {
+                const data = await res.json();
+                if (isMounted && data.price) setCurrentPrice(data.price);
+             }
+        }
+      } catch (err) {
+        console.error("Failed to fetch price", err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+    fetchPrice();
+    return () => { isMounted = false; };
+  }, [trade]);
+
+  const cp = currentPrice || trade.entryPrice;
+  const isProfit = cp >= trade.entryPrice;
+  const pnl = (cp - trade.entryPrice) * trade.quantity;
+  const pnlPercent = ((cp - trade.entryPrice) / trade.entryPrice) * 100;
+  
+  const currentTP = isEditingPlan ? editTP : trade.plannedTakeProfit;
+  const currentSL = isEditingPlan ? editSL : trade.plannedStopLoss;
+
+  const tpValue = currentTP ? (currentTP - trade.entryPrice) * trade.quantity : null;
+  const slValue = currentSL ? (currentSL - trade.entryPrice) * trade.quantity : null;
+  
+  const tpInvestmentValue = currentTP ? currentTP * trade.quantity : null;
+  const slInvestmentValue = currentSL ? currentSL * trade.quantity : null;
+
+  // Calculate risk using totalCapital
+  let riskColor = "bg-neutral-800 text-neutral-400";
+  let riskBorder = "border-[#1a1a1a]";
+  let riskText = "-";
+  let displayRiskAmount: number | null = null;
+
+  if (currentSL && trade.quantity && totalCapital > 0) {
+    const riskAmount = Math.abs(trade.entryPrice - currentSL) * trade.quantity;
+    displayRiskAmount = riskAmount;
+    if (riskAmount > 0) {
+        const riskPercent = (riskAmount / totalCapital) * 100;
+        riskText = `${riskPercent.toFixed(2)}%`;
+        if (riskPercent <= 1) {
+            riskColor = "bg-emerald-500/10 text-emerald-500";
+            riskBorder = "border-emerald-500/30";
+        } else if (riskPercent <= 2) {
+            riskColor = "bg-[var(--color-gold)]/10 text-[var(--color-gold)]";
+            riskBorder = "border-[var(--color-gold)]/50";
+        } else {
+            riskColor = "bg-rose-500/10 text-rose-500";
+            riskBorder = "border-rose-500/50";
+        }
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="relative w-full max-w-lg overflow-hidden rounded-3xl border border-[#2a2a2a] bg-[#0d0d0d] shadow-2xl flex flex-col max-h-[90vh]"
+      >
+        <div className="shrink-0 px-6 py-5 border-b border-[#222] flex justify-between items-center bg-[#111]">
+           <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
+             <Target size={16} className="text-[var(--color-gold)]" />
+             Posisi: {trade.symbol}
+           </h3>
+           <button onClick={onClose} className="p-1 text-[#555] hover:text-white transition-colors">
+              <X size={18} />
+           </button>
+        </div>
+
+        <div className="p-6 space-y-6 overflow-y-auto min-h-0 flex-1">
+           <div className="grid grid-cols-2 gap-4">
+              <div className="bg-[#080808] p-4 rounded-xl border border-[#1a1a1a]">
+                 <span className="block text-[10px] font-black uppercase text-[#555] tracking-widest mb-1">Status</span>
+                 <span className={cn("text-xs font-bold px-2 py-0.5 rounded-sm uppercase tracking-wider", trade.status === 'OPEN' ? "bg-emerald-500/10 text-emerald-500" : "bg-neutral-800 text-neutral-400")}>
+                    {trade.status}
+                 </span>
+              </div>
+              <div className="bg-[#080808] p-4 rounded-xl border border-[#1a1a1a]">
+                 <span className="block text-[10px] font-black uppercase text-[#555] tracking-widest mb-1">Tipe</span>
+                 <span className={cn("text-xs font-bold uppercase tracking-wider", trade.type === 'BUY' ? "text-emerald-500" : "text-rose-500")}>
+                    {trade.type}
+                 </span>
+              </div>
+           </div>
+
+           <div className="bg-[#050505] p-5 rounded-2xl border border-[#222]">
+              <div className="flex justify-between items-center mb-4">
+                 <span className="text-[10px] font-black uppercase text-[#666] tracking-widest">Detail Harga</span>
+                 {loading && <span className="text-[10px] font-bold text-[#888] animate-pulse">Mengambil data...</span>}
+              </div>
+              <div className="grid grid-cols-2 gap-6 relative">
+                 <div className="space-y-1">
+                    <span className="text-[10px] uppercase text-[#444] font-bold">Harga Masuk</span>
+                    <div className="text-lg font-mono font-black text-white">Rp {trade.entryPrice.toLocaleString("id-ID")}</div>
+                 </div>
+                 <div className="space-y-1">
+                    <span className="text-[10px] uppercase text-[#444] font-bold">Harga Saat Ini</span>
+                    <div className={cn("text-lg font-mono font-black", loading ? "text-[#555]" : "text-[var(--color-gold)]")}>
+                      {loading ? "..." : `Rp ${cp.toLocaleString("id-ID")}`}
+                    </div>
+                 </div>
+              </div>
+              
+              {!loading && (
+                 <div className="mt-4 pt-4 border-t border-[#1a1a1a] flex justify-between items-center">
+                    <span className="text-[10px] font-black uppercase text-[#555] tracking-wider">Unrealized P/L</span>
+                    <div className={cn("flex items-center gap-2", isProfit ? "text-emerald-400" : "text-rose-400")}>
+                       <span className="text-sm font-black font-mono">
+                         {isProfit ? "+" : "-"}Rp {Math.abs(pnl).toLocaleString("id-ID")}
+                       </span>
+                       <span className="text-xs font-bold">({isProfit ? "+" : ""}{pnlPercent.toFixed(2)}%)</span>
+                    </div>
+                 </div>
+              )}
+           </div>
+
+           <div className="grid grid-cols-1 gap-3">
+              <div className="flex justify-between items-center p-4 bg-[#080808] border border-[#1a1a1a] rounded-xl mb-1">
+                  <span className="block text-[8px] font-black uppercase text-[#555] tracking-widest mb-1">Risk Per Trade</span>
+                  <div className="flex gap-2 items-center">
+                      <span className="text-xs font-bold text-white font-mono flex items-center pr-2 border-r border-[#222]">
+                         {displayRiskAmount !== null ? `Rp ${displayRiskAmount.toLocaleString("id-ID")}` : "-"}
+                      </span>
+                      <div className={cn("inline-flex px-2 py-0.5 rounded border text-xs font-bold font-mono tracking-wider", riskColor, riskBorder)}>
+                          {riskText}
+                      </div>
+                  </div>
+              </div>
+
+              <div className="bg-[#080808] border border-[#1a1a1a] rounded-xl overflow-hidden mt-1">
+                <div className="px-5 py-3 border-b border-[#1a1a1a] bg-[#111] flex justify-between items-center">
+                   <span className="text-[10px] font-black uppercase tracking-widest text-white">Skenario Trading</span>
+                   {!isEditingPlan ? (
+                     <button onClick={() => setIsEditingPlan(true)} className="text-[10px] font-black uppercase tracking-widest text-[#555] hover:text-[var(--color-gold)] transition-colors flex items-center gap-1">
+                       <Pencil size={10} /> Edit
+                     </button>
+                   ) : (
+                     <div className="flex gap-3">
+                       <button onClick={() => {
+                          onUpdatePlan(editTP, editSL);
+                          setIsEditingPlan(false);
+                       }} className="text-[10px] font-black uppercase tracking-widest text-emerald-500 hover:text-emerald-400 transition-colors">
+                         Simpan
+                       </button>
+                       <button onClick={() => {
+                          setEditTP(trade.plannedTakeProfit);
+                          setEditSL(trade.plannedStopLoss);
+                          setIsEditingPlan(false);
+                       }} className="text-[10px] font-black uppercase tracking-widest text-rose-500 hover:text-rose-400 transition-colors">
+                         Batal
+                       </button>
+                     </div>
+                   )}
+                </div>
+                <div className="p-4 space-y-4">
+                  {/* Take Profit Frame */}
+                  <div className={cn("border rounded-2xl p-4 transition-all relative overflow-hidden", isEditingPlan ? "border-emerald-500/50 bg-emerald-500/[0.03] shadow-[0_0_20px_rgba(16,185,129,0.05)]" : "border-emerald-500/20 bg-[#0a0a0a]")}>
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="flex items-center gap-2 mt-1">
+                         <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
+                         <span className="text-[10px] font-black uppercase tracking-widest text-[#888]">Take Profit</span>
+                      </div>
+                      <div>
+                        {isEditingPlan ? (
+                           <div className="relative">
+                             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#555] text-sm font-bold">Rp</span>
+                             <input type="number" value={editTP || ''} onChange={e => setEditTP(Number(e.target.value) || undefined)} className="w-[140px] bg-[#111] border border-emerald-500/50 focus:border-emerald-500 rounded-xl pl-8 pr-3 py-2 text-emerald-400 text-sm font-bold font-mono outline-none transition-colors text-right" placeholder="0" />
+                           </div>
+                        ) : (
+                           <span className="text-sm font-black font-mono text-emerald-400">{currentTP ? `Rp ${currentTP.toLocaleString("id-ID")}` : "-"}</span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4 pt-4 border-t border-emerald-500/10">
+                       <div>
+                          <span className="text-[9px] font-black uppercase text-[#555] tracking-widest block mb-1">Valuasi</span>
+                          <span className="text-sm font-bold font-mono text-white block">{tpInvestmentValue ? `Rp ${tpInvestmentValue.toLocaleString("id-ID")}` : "-"}</span>
+                       </div>
+                       <div className="text-right">
+                          <span className="text-[9px] font-black uppercase text-[#555] tracking-widest block mb-1">Ekspektasi P/L</span>
+                          <div className="flex flex-col items-end">
+                             <span className="text-sm font-bold font-mono text-emerald-400 block">{tpValue ? `+Rp ${tpValue.toLocaleString("id-ID")}` : "-"}</span>
+                             {currentTP && <span className="text-[9px] font-mono font-bold text-emerald-500 bg-emerald-500/10 inline-block px-1.5 py-0.5 rounded mt-1">+{(((currentTP - trade.entryPrice) / trade.entryPrice) * 100).toFixed(2)}%</span>}
+                          </div>
+                       </div>
+                    </div>
+                  </div>
+
+                  {/* Stop Loss Frame */}
+                  <div className={cn("border rounded-2xl p-4 transition-all relative overflow-hidden", isEditingPlan ? "border-rose-500/50 bg-rose-500/[0.03] shadow-[0_0_20px_rgba(244,63,94,0.05)]" : "border-rose-500/20 bg-[#0a0a0a]")}>
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="flex items-center gap-2 mt-1">
+                         <div className="w-2 h-2 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]"></div>
+                         <span className="text-[10px] font-black uppercase tracking-widest text-[#888]">Stop Loss</span>
+                      </div>
+                      <div>
+                        {isEditingPlan ? (
+                           <div className="relative">
+                             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#555] text-sm font-bold">Rp</span>
+                             <input type="number" value={editSL || ''} onChange={e => setEditSL(Number(e.target.value) || undefined)} className="w-[140px] bg-[#111] border border-rose-500/50 focus:border-rose-500 rounded-xl pl-8 pr-3 py-2 text-rose-400 text-sm font-bold font-mono outline-none transition-colors text-right" placeholder="0" />
+                           </div>
+                        ) : (
+                           <span className="text-sm font-black font-mono text-rose-400">{currentSL ? `Rp ${currentSL.toLocaleString("id-ID")}` : "-"}</span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4 pt-4 border-t border-rose-500/10">
+                       <div>
+                          <span className="text-[9px] font-black uppercase text-[#555] tracking-widest block mb-1">Valuasi</span>
+                          <span className="text-sm font-bold font-mono text-white block">{slInvestmentValue ? `Rp ${slInvestmentValue.toLocaleString("id-ID")}` : "-"}</span>
+                       </div>
+                       <div className="text-right">
+                          <span className="text-[9px] font-black uppercase text-[#555] tracking-widest block mb-1">Ekspektasi P/L</span>
+                          <div className="flex flex-col items-end">
+                             <span className="text-sm font-bold font-mono text-rose-400 block">{slValue ? `-Rp ${Math.abs(slValue).toLocaleString("id-ID")}` : "-"}</span>
+                             {currentSL && <span className="text-[9px] font-mono font-bold text-rose-500 bg-rose-500/10 inline-block px-1.5 py-0.5 rounded mt-1">{(((currentSL - trade.entryPrice) / trade.entryPrice) * 100).toFixed(2)}%</span>}
+                          </div>
+                       </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center p-4 bg-[#080808] border border-[var(--color-gold)]/30 rounded-xl mt-2">
+                 <div>
+                    <span className="block text-[8px] font-black uppercase text-[var(--color-gold)] tracking-widest mb-1">Nilai P/L Floating MTM</span>
+                    <span className="text-xs font-bold text-white font-mono">Volume: {trade.quantity.toLocaleString("id-ID")} Shares</span>
+                 </div>
+                 <div className="text-right">
+                    <span className={cn("text-xs font-bold font-mono", isProfit ? "text-emerald-400" : "text-rose-400")}>
+                       {isProfit ? `+Rp ${pnl.toLocaleString("id-ID")}` : `-Rp ${Math.abs(pnl).toLocaleString("id-ID")}`}
+                    </span>
+                    <span className={cn("block text-[9px] font-mono mt-0.5 text-right", isProfit ? "text-emerald-500/70" : "text-rose-500/70")}>
+                       {isProfit ? "+" : ""}{pnlPercent.toFixed(2)}%
+                    </span>
+                 </div>
+              </div>
+           </div>
+
+           {trade.status === 'OPEN' && !loading && (
+             <div className="mt-6 pt-6 border-t border-[#1a1a1a]">
+                {isAveraging ? (
+                   <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                         <div className="space-y-2">
+                            <label className="text-[10px] font-black uppercase text-[#555] tracking-widest">Harga Avg (Rp)</label>
+                            <input type="number" value={avgEntryPrice || ''} onChange={e => setAvgEntryPrice(Number(e.target.value))} className="w-full bg-[#111] border border-[#222] focus:border-[var(--color-gold)] rounded-xl px-4 py-2.5 text-white text-xs font-bold font-mono outline-none transition-colors" />
+                         </div>
+                         <div className="space-y-2">
+                            <label className="text-[10px] font-black uppercase text-[#555] tracking-widest">Valuasi Tambah (Rp)</label>
+                            <input type="number" value={avgValuation || ''} onChange={e => setAvgValuation(Number(e.target.value))} className="w-full bg-[#111] border border-[#222] focus:border-[var(--color-gold)] rounded-xl px-4 py-2.5 text-white text-xs font-bold font-mono outline-none transition-colors" />
+                         </div>
+                      </div>
+                      
+                      <div className="flex gap-2 pt-2">
+                         <button 
+                           onClick={() => {
+                             if (avgEntryPrice > 0 && avgValuation > 0) {
+                               const addedQty = avgValuation / avgEntryPrice;
+                               const newTotalQty = trade.quantity + addedQty;
+                               const newAvgPrice = ((trade.entryPrice * trade.quantity) + (avgEntryPrice * addedQty)) / newTotalQty;
+                               onAverage(newAvgPrice, newTotalQty);
+                               setIsAveraging(false);
+                             }
+                           }}
+                           className="flex-1 bg-[var(--color-gold)] hover:brightness-110 text-black font-black uppercase tracking-widest text-[10px] py-3 rounded-xl transition-all"
+                         >
+                           Konfirmasi Avg
+                         </button>
+                         <button onClick={() => setIsAveraging(false)} className="bg-neutral-800 hover:bg-neutral-700 text-white font-black uppercase tracking-widest text-[10px] px-6 py-3 rounded-xl border border-[#2a2a2a] transition-all">
+                           Batal
+                         </button>
+                      </div>
+                   </div>
+                ) : (
+                    <div className="flex gap-2">
+                       {isProfit ? (
+                           <button onClick={() => onClosePosition(cp)} className="flex-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-500 border border-emerald-500/50 font-black uppercase tracking-widest text-[10px] py-3 rounded-xl transition-all">
+                               Cut Profit
+                           </button>
+                       ) : (
+                           <button onClick={() => onClosePosition(cp)} className="flex-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-500 border border-rose-500/50 font-black uppercase tracking-widest text-[10px] py-3 rounded-xl transition-all">
+                               Cut Loss
+                           </button>
+                       )}
+                       <button onClick={() => setIsAveraging(true)} className="bg-neutral-800 hover:bg-neutral-700 text-white font-black uppercase tracking-widest text-[10px] px-6 py-3 rounded-xl border border-[#2a2a2a] transition-all">
+                           Avg
+                       </button>
+                       <button onClick={onEdit} className="bg-neutral-800 hover:bg-neutral-700 text-white p-3 rounded-xl border border-[#2a2a2a] transition-all flex items-center justify-center">
+                           <Pencil size={14} />
+                       </button>
+                    </div>
+                )}
+             </div>
+           )}
         </div>
       </motion.div>
     </div>

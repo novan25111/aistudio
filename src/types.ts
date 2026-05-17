@@ -78,3 +78,26 @@ export interface RecommendedStock {
     };
   };
 }
+
+export interface Trade {
+  id: string;
+  symbol: string;
+  entryPrice: number;
+  quantity: number;
+  date: string;
+  type: 'BUY' | 'SELL';
+  status: 'OPEN' | 'CLOSED';
+  marketCategory: 'IDX' | 'CRYPTO' | 'CFD';
+  notes?: string;
+  exitPrice?: number;
+  // IDX Stocks specific fields
+  plannedEntryPrice?: number;
+  plannedStopLoss?: number;
+  plannedTakeProfit?: number;
+  riskPerTrade?: number;
+  actualExitPrice?: number;
+  setupTrigger?: string;
+  marketRegime?: 'Bullish' | 'Bearish' | 'Sideways' | 'Reversal';
+  ihsgCondition?: 'Uptrend' | 'Sideway' | 'Downtrend';
+  psychologicalState?: 1 | 2 | 3 | 4 | 5;
+}
