@@ -1,0 +1,18 @@
+310:  newsData: NewsItem[],
+317:  for (const news of newsData) {
+704:  const [newsData, setNewsData] = useState<NewsItem[]>(MOCK_NEWS_DATA);
+715:      const sectorNews = newsData.filter((n) =>
+851:  }, [newsData, sectorMarketData, macroMarketData]);
+854:    let filtered = [...newsData];
+860:  }, [newsData, selectedNewsType]);
+888:    if (newsData && newsData.length > 0) {
+890:      const recentNews = newsData.slice(0, 25);
+927:  }, [stocks, newsData, sectorScores, tickerData]);
+1122:            newsData={newsData}
+1138:            newsData={newsData}
+3116:  newsData,
+3122:  newsData: NewsItem[];
+3168:    return newsData.filter(n => 
+3173:  }, [newsData, stock.symbol, stock.sector, liveStockNews]);
+4534:  newsData,
+4543:  newsData: NewsItem[];

@@ -24,7 +24,8 @@ export interface NewsItem {
   url: string;
   summary: string;
   date: string;
-  category: 'local' | 'international';
+  pubDateStr?: string;
+  category?: 'local' | 'international';
   impactType?: 'Makro' | 'Sektoral' | 'Emiten';
   impactScore?: number; // 0 to 100
   impactedSectors?: string[];
@@ -40,9 +41,27 @@ export interface NewsItem {
 export interface CorporateEvent {
   id: string;
   symbol: string;
-  type: string;
+  companyName?: string;
+  type: 'Dividen' | 'Stock Split' | 'Right Issue' | 'Saham Bonus' | 'RUPS' | 'Earnings' | string;
+  status: 'Upcoming' | 'Active' | 'Completed';
   date: string;
   desc: string;
+  
+  // Data Khusus Dividen
+  dividendValue?: number;
+  dividendYield?: number;
+  cumDate?: string;
+  exDate?: string;
+  recordingDate?: string;
+  paymentDate?: string;
+  
+  // Data Khusus Stock Split
+  splitRatio?: string;
+  pricePre?: number;
+  pricePost?: number;
+  sharesPre?: string;
+  sharesPost?: string;
+  effectiveDate?: string;
 }
 
 export interface RecommendedStock {
@@ -52,6 +71,17 @@ export interface RecommendedStock {
   price: number;
   change: number;
   reason: string;
+  marketCap?: string;
+  peRatio?: string;
+  psRatio?: string;
+  volume?: string;
+  revenue?: string;
+  netIncome?: string;
+  rawRevenue?: number;
+  rawNetIncome?: number;
+  rawMarketCap?: number;
+  quarterlyTrend?: { period: string; revenue: number; netIncome: number }[];
+  valuationBands?: { date: string; pe: number; peMean: number; pePlus1SD: number; pePlus2SD: number; peMinus1SD: number; peMinus2SD: number; pbv: number; pbvMean: number; pbvPlus1SD: number; pbvPlus2SD: number; pbvMinus1SD: number; pbvMinus2SD: number }[];
   detail?: {
     framework4W: {
       why: string;
@@ -100,4 +130,28 @@ export interface Trade {
   marketRegime?: 'Bullish' | 'Bearish' | 'Sideways' | 'Reversal';
   ihsgCondition?: 'Uptrend' | 'Sideway' | 'Downtrend';
   psychologicalState?: 1 | 2 | 3 | 4 | 5;
+}
+
+export interface AstroEvent {
+  date: string; // ISO format
+  type: 'New Moon' | 'Full Moon' | 'First Quarter' | 'Last Quarter';
+  description: string;
+}
+
+export interface FibonacciNode {
+  date: string;
+  value: number;
+  label: string;
+}
+
+export interface TimeSupportSignal {
+  id: string;
+  date: string;
+  symbol: string;
+  category: 'IDX' | 'CRYPTO' | 'XAU';
+  type: 'Astro' | 'Fibonacci' | 'Hybrid';
+  strength: 'High' | 'Medium' | 'Low';
+  instruction: string;
+  priceZone?: string;
+  impactSide?: 'Peak' | 'Bottom' | 'Neutral';
 }

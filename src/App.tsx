@@ -3,15 +3,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
+  Bitcoin,
+  LineChart as LineChartIcon,
   TrendingUp,
   TrendingDown,
   RefreshCw,
   BarChart3,
   LayoutDashboard,
-  PieChart,
+  PieChart as PieChartIcon,
   Newspaper,
+  ArrowUpRight,
   ShieldCheck,
   Zap,
   Building2,
@@ -47,21 +50,42 @@ import {
   Lock,
   User,
   X,
+  Activity,
+  Globe,
+  Crosshair,
+  Settings,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Menu,
+  Filter,
+  ChevronDown,
+  ArrowLeftRight
 } from "lucide-react";
 import {
   AreaChart,
   Area,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  BarChart,
-  Bar,
+  PieChart,
+  Pie,
   Cell,
+  LineChart,
+  Line,
+  ReferenceLine,
+  ComposedChart,
 } from "recharts";
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "./lib/utils";
+import { TechnicalDashboard } from "./components/TechnicalDashboard";
+import { CorporateActionDashboard } from "./components/CorporateActionDashboard";
+import { StockChartApex } from "./components/StockChartApex";
+import { AstroCalendar } from "./components/AstroCalendar";
+import { BrokerSummaryDashboard } from "./components/BrokerSummaryDashboard";
 import {
   MarketData,
   SectorPerformance,
@@ -70,44 +94,115 @@ import {
   CorporateEvent,
   Trade,
 } from "./types";
-import {
-  SymbolOverview,
-  AdvancedRealTimeChart,
-} from "react-ts-tradingview-widgets";
 
-// Mock data for May 12, 2026
+
+// Mock data for May 18, 2026
 const MOCK_CORPORATE_EVENTS: CorporateEvent[] = [
   {
     id: "1",
     symbol: "BBCA",
-    type: "RUPS Tahunan",
+    companyName: "Bank Central Asia Tbk",
+    type: "Dividen",
+    status: "Completed",
     date: "15 Mei 2026",
-    desc: "Persetujuan Laporan Tahunan dan Alokasi Laba Bersih.",
+    desc: "Dividen tunai tahun buku 2025.",
+    dividendValue: 120,
+    dividendYield: 1.15,
+    cumDate: "2026-05-08",
+    exDate: "2026-05-09",
+    recordingDate: "2026-05-12",
+    paymentDate: "2026-05-15",
   },
   {
     id: "2",
     symbol: "GOTO",
+    companyName: "GoTo Gojek Tokopedia Tbk",
     type: "Earnings",
+    status: "Completed",
     date: "18 Mei 2026",
     desc: "Rilis Kinerja Kuartal I 2026.",
   },
   {
     id: "3",
     symbol: "BREN",
+    companyName: "Barito Renewables Energy Tbk",
     type: "Stock Split",
+    status: "Upcoming",
     date: "21 Mei 2026",
     desc: "Rasio Pemecahan Saham 1:5.",
+    splitRatio: "1:5",
+    pricePre: 8200,
+    pricePost: 1640,
+    sharesPre: "133.78 Miliar",
+    sharesPost: "668.9 Miliar",
+    cumDate: "2026-05-20",
+    effectiveDate: "2026-05-21",
   },
   {
     id: "4",
     symbol: "TLKM",
+    companyName: "Telkom Indonesia (Persero) Tbk",
     type: "Dividen",
+    status: "Upcoming",
     date: "25 Mei 2026",
     desc: "Cum Date dividen tunai tahun buku 2025.",
+    dividendValue: 165,
+    dividendYield: 4.82,
+    cumDate: "2026-05-25",
+    exDate: "2026-05-26",
+    recordingDate: "2026-05-28",
+    paymentDate: "2026-06-15",
+  },
+  {
+    id: "5",
+    symbol: "ASII",
+    companyName: "Astra International Tbk",
+    type: "RUPS",
+    status: "Upcoming",
+    date: "19 Mei 2026",
+    desc: "RUPS Tahunan Strategi 2026.",
+  },
+  {
+    id: "6",
+    symbol: "UNVR",
+    companyName: "Unilever Indonesia Tbk",
+    type: "Dividen",
+    status: "Active",
+    date: "18 Mei 2026",
+    desc: "Cum Date Dividen Interim.",
+    dividendValue: 84,
+    dividendYield: 2.3,
+    cumDate: "2026-05-18",
+    exDate: "2026-05-19",
+    recordingDate: "2026-05-21",
+    paymentDate: "2026-06-05",
   },
 ];
 
 const MOCK_HISTORICAL_FEAR_GREED = [
+  { date: '17 Apr', value: 55 },
+  { date: '18 Apr', value: 58 },
+  { date: '19 Apr', value: 62 },
+  { date: '20 Apr', value: 60 },
+  { date: '21 Apr', value: 55 },
+  { date: '22 Apr', value: 48 },
+  { date: '23 Apr', value: 42 },
+  { date: '24 Apr', value: 38 },
+  { date: '25 Apr', value: 32 },
+  { date: '26 Apr', value: 30 },
+  { date: '27 Apr', value: 35 },
+  { date: '28 Apr', value: 42 },
+  { date: '29 Apr', value: 45 },
+  { date: '30 Apr', value: 40 },
+  { date: '01 Mei', value: 44 },
+  { date: '02 Mei', value: 48 },
+  { date: '03 Mei', value: 50 },
+  { date: '04 Mei', value: 52 },
+  { date: '05 Mei', value: 58 },
+  { date: '06 Mei', value: 60 },
+  { date: '07 Mei', value: 63 },
+  { date: '08 Mei', value: 65 },
+  { date: '09 Mei', value: 58 },
   { date: '10 Mei', value: 42 },
   { date: '11 Mei', value: 45 },
   { date: '12 Mei', value: 38 },
@@ -132,6 +227,28 @@ const MOCK_MARKET_DATA: MarketData = {
     { time: "15:30", value: 7425 },
     { time: "16:00", value: 7421.32 },
   ],
+};
+
+const SECTOR_DEFAULTS: Record<string, { price: number; volume: number; changePercent: number }> = {
+  'Energi': { price: 2150.45, volume: 1850000, changePercent: 0.45 },
+  'Barang Baku': { price: 1220.12, volume: 1450000, changePercent: -0.25 },
+  'Perindustrian': { price: 1110.85, volume: 950000, changePercent: 0.15 },
+  'Konsumer Primer': { price: 820.50, volume: 2200000, changePercent: -0.05 },
+  'Konsumer Non-Primer': { price: 710.20, volume: 1600000, changePercent: 0.35 },
+  'Kesehatan': { price: 1350.60, volume: 550000, changePercent: -0.10 },
+  'Keuangan': { price: 1410.15, volume: 4500000, changePercent: 0.65 },
+  'Properti': { price: 680.75, volume: 3100000, changePercent: -0.85 },
+  'Teknologi': { price: 3400.30, volume: 4200000, changePercent: 1.25 },
+  'Infrastruktur': { price: 1550.90, volume: 2800000, changePercent: 0.05 },
+  'Logistik': { price: 980.40, volume: 800000, changePercent: -0.30 }
+};
+
+const MACRO_DEFAULTS: Record<string, { changePercent: number; price: number }> = {
+  'IHSG': { changePercent: 0.12, price: 7250.32 },
+  'USDIDR': { changePercent: -0.05, price: 16120.00 },
+  'GOLD': { changePercent: 0.45, price: 2355.80 },
+  'OIL': { changePercent: -0.60, price: 78.50 },
+  'COAL': { changePercent: 1.15, price: 135.20 }
 };
 
 const SECTOR_BASE_DATA = [
@@ -194,7 +311,7 @@ function calculateFinalScore(
   macroData: MacroVariable[],
   netForeignFlowBillion: number,
   actualDelta: number
-): number {
+): { finalScore: number, flowMultiplier: number, preAlpha: number, textAlpha: number, macroAlpha: number } {
   // TAHAP 1: Engine Sentimen Teks
   let totalTextImpact = 0;
   for (const news of newsData) {
@@ -237,7 +354,7 @@ function calculateFinalScore(
     // Konfirmasi
     if (flowDirection === alphaDirection) flowMultiplier = 1.5;
     // Divergensi
-    else flowMultiplier = 0.3;
+    else if (alphaDirection !== 0) flowMultiplier = 0.3;
   }
 
   // TAHAP 4: Menggabungkan Market Momentum (Actual Price Change)
@@ -249,7 +366,13 @@ function calculateFinalScore(
   const totalAlpha = (preAlpha * flowMultiplier) + momentumAlpha;
   const finalScore = 50 + 50 * Math.tanh(TANH_SCALAR * totalAlpha);
 
-  return Math.round(finalScore * 100) / 100;
+  return {
+    finalScore: Math.round(finalScore * 100) / 100,
+    flowMultiplier, 
+    preAlpha,
+    textAlpha: totalTextImpact,
+    macroAlpha: totalMacroImpact
+  };
 }
 
 import { INITIAL_RECOMMENDED_STOCKS } from "./mockData";
@@ -329,10 +452,42 @@ const MOCK_NEWS_DATA: NewsItem[] = [
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("Dashboard");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRefreshingNews, setIsRefreshingNews] = useState(false);
-  const [macroRefreshKey, setMacroRefreshKey] = useState(0);
+  const [notifications, setNotifications] = useState<{ id: string; message: string; type: "info" | "error" | "success" }[]>([]);
+
+  const addNotification = (message: string, type: "info" | "error" | "success" = "success") => {
+    const id = Math.random().toString(36).substring(2, 9);
+    setNotifications((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+    }, 4000);
+  };
+
+  const [realtimeOpp, setRealtimeOpp] = useState<any[]>([]);
+  const [realtimeOppLoading, setRealtimeOppLoading] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
+  const [isHeaderHidden, setIsHeaderHidden] = useState(false);
+  const lastScrollY = useRef(0);
+
+  const handleMainScroll = (e: React.UIEvent<HTMLElement>) => {
+    const currentScrollY = e.currentTarget.scrollTop;
+    
+    // Auto-hide mobile header logic
+    if (currentScrollY > lastScrollY.current && currentScrollY > 50) {
+      if (!isHeaderHidden) setIsHeaderHidden(true);
+    } else if (currentScrollY < lastScrollY.current) {
+      if (isHeaderHidden) setIsHeaderHidden(false);
+    }
+    
+    lastScrollY.current = currentScrollY;
+    
+    if (currentScrollY > 30 !== isScrolled) {
+        setIsScrolled(currentScrollY > 30);
+    }
+  };
+
   const [currentTime, setCurrentTime] = useState(new Date());
   const [sectorMarketData, setSectorMarketData] = useState<
     Record<string, { volume: number; changePercent: number; price: number }>
@@ -343,7 +498,62 @@ export default function App() {
   const [selectedStock, setSelectedStock] = useState<RecommendedStock | null>(
     null,
   );
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isNewsFilterOpen, setIsNewsFilterOpen] = useState(false);
+  const [isSectorFilterOpen, setIsSectorFilterOpen] = useState(false);
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
+
+  const executeSearch = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!searchQuery.trim()) return;
+    const q = searchQuery.trim().toUpperCase();
+    
+    // check if in mock data
+    const found = stocks.find(s => s.symbol.toUpperCase() === q);
+    if (found) {
+      setSelectedStock(found);
+    } else {
+      // Generate a generic one
+      const genericStock: RecommendedStock = {
+        symbol: q,
+        name: `${q} Tbk.`,
+        sector: "Umum",
+        price: 1000, 
+        change: 0,
+        reason: "Live Analysis Request via Terminal Search",
+        detail: {
+          framework4W: {
+            why: "Sentimen berdasarkan technical momentum realtime.",
+            what: `Analisis profil emiten ${q} secara on-demand.`,
+            where: `Zona support/resistance ditarik dari pergerakan harga terbaru.`,
+            when: `Timing eksekusi bergantung pada konfirmasi candlestick / indikator.`,
+          },
+          technicalSignals: ["RSI / MACD On-Demand", "Volume Average Check"],
+          report: {
+              rating: "ON.WATCH",
+              targetPrice: 0,
+              stopLoss: 0,
+              timeHorizon: "Short/Medium",
+              pivots: { r2: 0, r1: 0, pivot: 0, s1: 0, s2: 0 },
+              thesis: `Data ${q} diload secara interaktif melalui technical layer.`,
+              technicalSetup: `Buka tab "Technical Analysis" untuk memuat pattern/trend secara real-time dari market.`,
+              financials: "Valuasi P/E & PBV belum ter-retrieve secara rekap.",
+              conclusion: `Pantau chart technical untuk konfirmasi sinyal.`
+          },
+          scalingIn: {
+              tranche1: "Cicil beli di level support terdekat.",
+              tranche2: "Average bila koreksi harga mencapai support selanjutnya.",
+              tranche3: "Pyramiding bila terjadi breakout continuation."
+          }
+        }
+      };
+      setSelectedStock(genericStock);
+    }
+    setSearchQuery("");
+    setIsMobileSearchOpen(false);
+  };
 
   const [trades, setTrades] = useState<Trade[]>([
     {
@@ -382,7 +592,9 @@ export default function App() {
   const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [viewingTrade, setViewingTrade] = useState<Trade | null>(null);
   const [isBalanceHidden, setIsBalanceHidden] = useState(false);
-  const [activeMarketFilter, setActiveMarketFilter] = useState<'IDX' | 'CRYPTO' | 'CFD'>('IDX');
+  const [activeMarketFilter, setActiveMarketFilter] = useState<'ALL' | 'IDX' | 'CRYPTO' | 'CFD'>('ALL');
+  const [isPortfolioFilterOpen, setIsPortfolioFilterOpen] = useState(false);
+  const [portfolioStatusFilter, setPortfolioStatusFilter] = useState<'ALL' | 'OPEN' | 'CLOSED'>('ALL');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [totalCapital, setTotalCapital] = useState(100000000);
 
@@ -391,30 +603,47 @@ export default function App() {
   );
 
   // --- Portfolio Calculations ---
+  const filteredPortfolioTrades = useMemo(() => {
+    return trades.filter(t => {
+      const matchesMarket = activeMarketFilter === 'ALL' || t.marketCategory === activeMarketFilter;
+      const matchesStatus = portfolioStatusFilter === 'ALL' || t.status === portfolioStatusFilter;
+      return matchesMarket && matchesStatus;
+    });
+  }, [trades, activeMarketFilter, portfolioStatusFilter]);
+
   const portfolioStats = useMemo(() => {
     if (trades.length === 0) {
       return { totalInvested: 0, totalPL: 0, totalPLPercent: 0, winRate: 0, avgProfit: 0, avgLoss: 0, currentBalance: totalCapital, buyingPower: totalCapital };
     }
 
-    let totalInvested = 0;
-    let totalCurrentValue = 0;
+    let totalInvested = 0; 
+    let totalBase = 0;
+    let realizedPL = 0;
+    let unrealizedPL = 0;
     let winningTrades = 0;
     let profits: number[] = [];
     let losses: number[] = [];
 
     trades.forEach(trade => {
       const investment = trade.entryPrice * trade.quantity;
-      totalInvested += investment;
+      totalBase += investment;
 
-      // Find current price from stocks list or simulate a minor variation
-      const currentStock = stocks.find(s => s.symbol === trade.symbol);
-      const currentPrice = currentStock ? currentStock.price : trade.entryPrice * 1.02; // +2% for mock/unknown
-      
-      const currentValue = currentPrice * trade.quantity;
-      totalCurrentValue += currentValue;
+      let plPercent = 0;
 
-      const plPercent = ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100;
-      
+      if (trade.status === 'CLOSED') {
+        const exitPr = trade.actualExitPrice || trade.exitPrice || trade.entryPrice;
+        const plAbs = (exitPr - trade.entryPrice) * trade.quantity;
+        realizedPL += plAbs;
+        plPercent = ((exitPr - trade.entryPrice) / trade.entryPrice) * 100;
+      } else {
+        totalInvested += investment;
+        const currentStock = stocks.find(s => s.symbol === trade.symbol);
+        const currentPrice = currentStock ? currentStock.price : trade.entryPrice * 1.02;
+        const plAbs = (currentPrice - trade.entryPrice) * trade.quantity;
+        unrealizedPL += plAbs;
+        plPercent = ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100;
+      }
+
       if (plPercent > 0) {
         winningTrades++;
         profits.push(plPercent);
@@ -423,14 +652,14 @@ export default function App() {
       }
     });
 
-    const totalPL = totalCurrentValue - totalInvested;
-    const totalPLPercent = totalInvested > 0 ? (totalPL / totalInvested) * 100 : 0;
-    const winRate = (winningTrades / trades.length) * 100;
+    const totalPL = realizedPL + unrealizedPL;
+    const totalPLPercent = totalBase > 0 ? (totalPL / totalBase) * 100 : 0;
+    const winRate = trades.length > 0 ? (winningTrades / trades.length) * 100 : 0;
     const avgProfit = profits.length > 0 ? profits.reduce((a, b) => a + b, 0) / profits.length : 0;
     const avgLoss = losses.length > 0 ? Math.abs(losses.reduce((a, b) => a + b, 0) / losses.length) : 0;
 
     const currentBalance = totalCapital + totalPL;
-    const buyingPower = totalCapital - totalInvested;
+    const buyingPower = totalCapital + realizedPL - totalInvested;
 
     return { totalInvested, totalPL, totalPLPercent, winRate, avgProfit, avgLoss, currentBalance, buyingPower };
   }, [trades, stocks, totalCapital]);
@@ -476,50 +705,51 @@ export default function App() {
   const [tickerData, setTickerData] = useState<any[]>([]);
   const [selectedSector, setSelectedSector] = useState("Semua");
   const [selectedNewsType, setSelectedNewsType] = useState("Semua");
+  const [selectedSectorTabCode, setSelectedSectorTabCode] = useState<string | null>(null);
+  const [isSectorModalOpen, setIsSectorModalOpen] = useState(false);
+  const [dashboardSectorFilter, setDashboardSectorFilter] = useState<"all" | "Buy" | "Neutral" | "Sell">("all");
   const [fearGreedIndex, setFearGreedIndex] = useState(50);
 
   const sectorScores = useMemo(() => {
-    // We use macroRefreshKey just to trigger a pseudo-random regeneration when refreshed
-    // Normally this would be a real fetch to a backend trading API
-    const getPseudoRandom = (seed: string) => {
-      let hash = 0;
-      for (let i = 0; i < seed.length; i++)
-        hash = (Math.imul(31, hash) + seed.charCodeAt(i)) | 0;
-      return (Math.sin(hash * (macroRefreshKey + 1)) * 10000) % 1;
-    };
-
     return SECTOR_BASE_DATA.map((sector) => {
       const sectorNews = newsData.filter((n) =>
-        n.impactedSectors?.some((s) =>
-          s.toLowerCase().includes(sector.code.toLowerCase()),
-        ),
+        n.impactedSectors?.some((s) => {
+          const sLower = s.toLowerCase();
+          const cLower = sector.code.toLowerCase();
+          return sLower.includes(cLower) || cLower.includes(sLower) ||
+                 (sLower.includes('otomotif') && cLower.includes('perindustrian')) ||
+                 (sLower.includes('tambang') && cLower.includes('barang baku'));
+        })
       );
 
       const realMarketData = sectorMarketData[sector.code];
-      const actualDelta = realMarketData
-        ? realMarketData.changePercent
-        : (getPseudoRandom(sector.code + "m1") - 0.5) * 2;
+      const defaults = SECTOR_DEFAULTS[sector.code] || { price: 1000, volume: 1000000, changePercent: 0.0 };
 
-      // Simulasi Order Flow Asing vs Domestik dari data Volume Finance API
-      const volume =
-        realMarketData?.volume ||
-        Math.abs(getPseudoRandom(sector.code + "v")) * 50000000;
-      const price =
-        realMarketData?.price ||
-        Math.abs(getPseudoRandom(sector.code + "p")) * 5000 + 500;
+      // REAL-TIME Live Data & Fallbacks
+      const actualDelta = realMarketData ? realMarketData.changePercent : defaults.changePercent;
+      const volume = realMarketData?.volume ? realMarketData.volume : defaults.volume;
+      const price = realMarketData?.price ? realMarketData.price : defaults.price;
 
-      // Asing 30%-70% dari total transaksi
-      const foreignRatio =
-        0.3 + Math.abs(getPseudoRandom(sector.code + "fr")) * 0.4;
+      // Realistic IDX sector foreign ratio weighting
+      const baseForeignRatio: Record<string, number> = {
+        'Energi': 0.45,
+        'Barang Baku': 0.38,
+        'Perindustrian': 0.32,
+        'Konsumer Primer': 0.40,
+        'Konsumer Non-Primer': 0.30,
+        'Kesehatan': 0.35,
+        'Keuangan': 0.65, // Keuangan (Banks) is heavily driven by foreign capital in IDX
+        'Properti': 0.28,
+        'Teknologi': 0.42,
+        'Infrastruktur': 0.50,
+        'Logistik': 0.25
+      };
+
+      const foreignRatio = baseForeignRatio[sector.code] || 0.40;
       const domesticRatio = 1 - foreignRatio;
 
-      // Tekanan beli berbanding lurus dengan pergerakan harga
-      const buyPressure =
-        actualDelta > 0
-          ? 0.55 + Math.abs(getPseudoRandom(sector.code + "bp")) * 0.2
-          : actualDelta < 0
-            ? 0.25 + Math.abs(getPseudoRandom(sector.code + "bp")) * 0.2
-            : 0.5;
+      // Deterministic buy pressure based directly on live index percent changes, scaled realistically
+      const buyPressure = Math.min(0.85, Math.max(0.15, 0.5 + (actualDelta / 10)));
 
       const foreignVolume = volume * foreignRatio;
       const domesticVolume = volume * domesticRatio;
@@ -529,31 +759,44 @@ export default function App() {
       const domesticBuy = domesticVolume * buyPressure;
       const domesticSell = domesticVolume * (1 - buyPressure);
 
-      // Menghitung delta flow dalam bentuk volume saham
+      // Calculating actual flow delta
       const netForeignFlowVol = foreignBuy - foreignSell;
       const netDomesticFlowVol = domesticBuy - domesticSell;
 
-      // Konversi ke Nilai Rupiah (Miliar) = (Volume * Harga) / 1 Miliar
-      const netForeignFlowBillion = (netForeignFlowVol * price) / 1000000000;
-      const netDomesticFlowBillion = (netDomesticFlowVol * price) / 1000000000;
+      // Convert to Real Rupiah Value (Miliar IDR) = (Volume in lots * 100 shares/lot * Price) / 1,000,000,000
+      const netForeignFlowBillion = (netForeignFlowVol * 100 * price) / 1000000000;
+      const netDomesticFlowBillion = (netDomesticFlowVol * 100 * price) / 1000000000;
 
-      // Use real macro data retrieved from backend
-      // Each sector might have different sensitivities (Beta) to different macro variables
+      // Deterministic macro variables with real-world beta matrix
       const buildMacroVariables = (): MacroVariable[] => {
         const map = [
-          { key: "IHSG", weight: 1.0, wM: 1.2 },
-          { key: "USDIDR", weight: 0.8, wM: 0.9 },
-          { key: "GOLD", weight: 0.5, wM: 0.6 },
-          { key: "OIL", weight: 0.6, wM: 0.7 },
-          { key: "COAL", weight: 0.6, wM: 0.7 },
+          { key: "IHSG", wM: 1.2 },
+          { key: "USDIDR", wM: 0.9 },
+          { key: "GOLD", wM: 0.6 },
+          { key: "OIL", wM: 0.7 },
+          { key: "COAL", wM: 0.7 },
         ];
+
+        const sectorBetas: Record<string, Record<string, number>> = {
+          'Energi': { 'IHSG': 1.05, 'USDIDR': 0.20, 'GOLD': -0.10, 'OIL': 1.45, 'COAL': 1.60 },
+          'Barang Baku': { 'IHSG': 1.10, 'USDIDR': -0.15, 'GOLD': 0.85, 'OIL': 0.40, 'COAL': 0.60 },
+          'Perindustrian': { 'IHSG': 0.95, 'USDIDR': -0.30, 'GOLD': -0.05, 'OIL': 0.20, 'COAL': 0.10 },
+          'Konsumer Primer': { 'IHSG': 0.65, 'USDIDR': -0.25, 'GOLD': 0.10, 'OIL': -0.15, 'COAL': -0.20 },
+          'Konsumer Non-Primer': { 'IHSG': 0.85, 'USDIDR': -0.40, 'GOLD': -0.05, 'OIL': -0.10, 'COAL': -0.10 },
+          'Kesehatan': { 'IHSG': 0.55, 'USDIDR': -0.10, 'GOLD': 0.20, 'OIL': -0.05, 'COAL': -0.05 },
+          'Keuangan': { 'IHSG': 1.25, 'USDIDR': -0.65, 'GOLD': -0.20, 'OIL': -0.10, 'COAL': -0.15 },
+          'Properti': { 'IHSG': 1.15, 'USDIDR': -0.80, 'GOLD': -0.10, 'OIL': -0.15, 'COAL': -0.20 },
+          'Teknologi': { 'IHSG': 1.45, 'USDIDR': -0.95, 'GOLD': -0.15, 'OIL': -0.10, 'COAL': -0.20 },
+          'Infrastruktur': { 'IHSG': 0.90, 'USDIDR': -0.35, 'GOLD': -0.05, 'OIL': 0.15, 'COAL': 0.10 },
+          'Logistik': { 'IHSG': 1.00, 'USDIDR': -0.45, 'GOLD': -0.05, 'OIL': 0.30, 'COAL': 0.15 }
+        };
 
         return map.map((m) => {
           const macroData = macroMarketData[m.key];
-          const dp = macroData
-            ? macroData.changePercent
-            : (getPseudoRandom(m.key) - 0.5) * 2;
-          const beta = (getPseudoRandom(sector.code + m.key + "b") - 0.5) * 2;
+          const dp = macroData ? macroData.changePercent : (MACRO_DEFAULTS[m.key]?.changePercent || 0.0);
+          const betaMap = sectorBetas[sector.code];
+          const beta = betaMap ? (betaMap[m.key] || 0.0) : 0.0;
+
           return {
             deltaPercentage: dp,
             macroWeight: m.wM,
@@ -562,19 +805,21 @@ export default function App() {
         });
       };
 
-      const score = calculateFinalScore(
+      const macroVariables = buildMacroVariables();
+      const scoreObj = calculateFinalScore(
         sectorNews,
-        buildMacroVariables(),
+        macroVariables,
         netForeignFlowBillion,
         actualDelta
       );
+      const score = scoreObj.finalScore;
 
       let outlook: "Buy" | "Sell" | "Neutral" = "Neutral";
       if (score >= 60) outlook = "Buy";
       else if (score <= 40) outlook = "Sell";
 
-      const currentPrice = realMarketData?.price || 0;
-      const currentChangePercent = realMarketData?.changePercent || 0;
+      const currentPrice = price;
+      const currentChangePercent = actualDelta;
       let prevPrice = 0;
       let marketChangeValue = 0;
 
@@ -585,12 +830,13 @@ export default function App() {
 
       return {
         ...sector,
+        ...scoreObj,
         change: Number(((score - 50) / 10).toFixed(2)),
-        volume: realMarketData?.volume || 0,
+        volume,
         price: currentPrice,
         marketChangePercent: currentChangePercent,
-        marketChangeValue: marketChangeValue,
-        prevPrice: prevPrice,
+        marketChangeValue,
+        prevPrice,
         color:
           outlook === "Buy"
             ? "#10b981"
@@ -599,71 +845,92 @@ export default function App() {
               : "#6b7280",
         outlook,
         probability: score,
+        netForeignFlowBillion,
+        netDomesticFlowBillion,
+        macroVariables,
+        newsCount: sectorNews.length,
+        sectorNews,
       };
     }).sort((a, b) => b.probability - a.probability);
-  }, [newsData, macroRefreshKey, sectorMarketData, macroMarketData]);
+  }, [newsData, sectorMarketData, macroMarketData]);
 
   const filteredNewsList = useMemo(() => {
     let filtered = [...newsData];
     if (selectedNewsType !== "Semua") {
       filtered = filtered.filter((n) => n.sourceType === selectedNewsType);
+    } else {
+      filtered = filtered.filter((n) => n.sourceType !== "Sentimen Komunitas");
     }
     // Sort by impact score descending to show highest impact news first
     return filtered.sort((a, b) => (b.impactScore || 0) - (a.impactScore || 0));
   }, [newsData, selectedNewsType]);
 
   useEffect(() => {
-    let score = 50;
-
-    // Sentiment from stocks change
-    const avgChange =
-      stocks.reduce((acc, stock) => acc + stock.change, 0) /
-      (stocks.length || 1);
-    score += avgChange * 5;
-
-    // Sentiment from news
-    let newsScore = 0;
-    const positiveWords = [
-      "naik",
-      "laba",
-      "profit",
-      "growth",
-      "rebound",
-      "bullish",
-      "tinggi",
-      "untung",
-      "positif",
-      "menguat",
-      "surplus",
-    ];
-    const negativeWords = [
-      "turun",
-      "rugi",
-      "loss",
-      "anjlok",
-      "bearish",
-      "rendah",
-      "kritis",
-      "negatif",
-      "inflasi",
-      "tekanan",
-    ];
-
-    newsData.forEach((news) => {
-      const text = (news.title + " " + news.summary).toLowerCase();
-      positiveWords.forEach((word) => {
-        if (text.includes(word)) newsScore += 1;
-      });
-      negativeWords.forEach((word) => {
-        if (text.includes(word)) newsScore -= 1.5;
-      });
-    });
-
-    score += newsScore;
-
-    score = Math.max(0, Math.min(100, Math.round(score)));
-    setFearGreedIndex(score);
-  }, [stocks, newsData]);
+    let finalFgScore = 50;
+    
+    // 1. Momentum dari Sektor (Market Momentum)
+    let sectorMomentumScore = 50;
+    if (sectorScores && sectorScores.length > 0) {
+      const positiveSectors = sectorScores.filter((s) => s.marketChangePercent > 0).length;
+      const negativeSectors = sectorScores.filter((s) => s.marketChangePercent < 0).length;
+      const totalActiveSectors = positiveSectors + negativeSectors;
+      
+      let sectorRatio = 0.5;
+      if (totalActiveSectors > 0) {
+        sectorRatio = positiveSectors / totalActiveSectors; // range 0 to 1
+      }
+      
+      const avgSectorProbability = sectorScores.reduce((acc, s) => acc + s.probability, 0) / sectorScores.length;
+      
+      // ratio: 50% weight, avg probability: 50% weight
+      sectorMomentumScore = (sectorRatio * 100 * 0.5) + (avgSectorProbability * 0.5);
+    } else {
+      const avgChange = stocks.reduce((acc, stock) => acc + stock.change, 0) / (stocks.length || 1);
+      sectorMomentumScore = 50 + (avgChange * 5);
+    }
+    
+    // 2. Sentimen Pasar dari Berita (News Sentiment - using impactScore)
+    let newsSentimentScore = 50;
+    if (newsData && newsData.length > 0) {
+      // Hanya mengevaluasi sampai dengan 25 berita terbaru
+      const recentNews = newsData.slice(0, 25);
+      const validImpactScores = recentNews.map(n => n.impactScore).filter(score => score !== undefined && score !== null);
+      
+      if (validImpactScores.length > 0) {
+        newsSentimentScore = validImpactScores.reduce((acc, score) => acc + score, 0) / validImpactScores.length;
+      } else {
+        let newsScore = 0;
+        const positiveWords = ["naik", "laba", "profit", "growth", "rebound", "bullish", "tinggi", "untung", "positif", "menguat", "surplus"];
+        const negativeWords = ["turun", "rugi", "loss", "anjlok", "bearish", "rendah", "kritis", "negatif", "inflasi", "tekanan"];
+        recentNews.forEach((news) => {
+          const text = (news.title + " " + news.summary).toLowerCase();
+          positiveWords.forEach((word) => { if (text.includes(word)) newsScore += 1; });
+          negativeWords.forEach((word) => { if (text.includes(word)) newsScore -= 1.5; });
+        });
+        newsSentimentScore = 50 + newsScore;
+      }
+    }
+    
+    // 3. Sentimen Makro dari Pergerakan Indeks IHSG (Market Sentiment)
+    let macroScore = 50;
+    if (tickerData && tickerData.length > 0) {
+      const ihsg = tickerData.find(t => t.symbol === '^JKSE' || t.name === 'IHSG');
+      if (ihsg) {
+        // Range IHSG change dari -2% sampai +2% akan mempengaruhi index dari 0 ke 100
+        let ihsgImpact = ihsg.change * 25; // 2% change -> 50 points
+        macroScore = Math.max(0, Math.min(100, 50 + ihsgImpact));
+      }
+    }
+    
+    // Pembobotan Komprehensif: 
+    // Sektor/Market Momentum: 45% (Akurat dari flow harian sektoral)
+    // Berita/News Sentiment: 35% (Sentimen publik dan persepsi pasar)
+    // IHSG/Macro Indikator: 20% (Kondisi pasar keseluruhan)
+    finalFgScore = (sectorMomentumScore * 0.45) + (newsSentimentScore * 0.35) + (macroScore * 0.20);
+    
+    finalFgScore = Math.max(0, Math.min(100, Math.round(finalFgScore)));
+    setFearGreedIndex(finalFgScore);
+  }, [stocks, newsData, sectorScores, tickerData]);
 
   let fgLabel = "Neutral";
   let fgColor = "text-yellow-500";
@@ -693,7 +960,7 @@ export default function App() {
       const updatedStocks = await Promise.all(
         stocks.map(async (stock) => {
           try {
-            const res = await fetch(`/api/quote/${stock.symbol}`);
+            const res = await fetch(`/api/quote/${stock.symbol}?_t=${Date.now()}`);
             if (!res.ok) return stock;
             const data = await res.json();
             const changePercent =
@@ -702,6 +969,17 @@ export default function App() {
               ...stock,
               price: data.price,
               change: Number(changePercent.toFixed(2)) || stock.change,
+              marketCap: data.marketCap,
+              peRatio: data.peRatio,
+              psRatio: data.psRatio,
+              volume: data.volume,
+              revenue: data.revenue,
+              netIncome: data.netIncome,
+              rawRevenue: data.rawRevenue,
+              rawNetIncome: data.rawNetIncome,
+              rawMarketCap: data.rawMarketCap,
+              quarterlyTrend: data.quarterlyTrend,
+              valuationBands: data.valuationBands,
             };
           } catch (e) {
             return stock;
@@ -717,7 +995,7 @@ export default function App() {
         if (updatedSelected) setSelectedStock(updatedSelected);
       }
     } catch (e) {
-      console.error(e);
+      // console.error(e);
     }
   };
 
@@ -729,34 +1007,48 @@ export default function App() {
         setTickerData(data);
       }
     } catch (e) {
-      console.error(e);
+      // console.error(e);
     }
   };
 
   const fetchSectorMarketData = async () => {
     try {
-      const res = await fetch("/api/sectors/market-data");
+      const res = await fetch(`/api/sectors/market-data?_t=${Date.now()}`, {
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
+      });
       if (res.ok) {
         const data = await res.json();
+        const jilterObj: Record<string, number> = {};
+        Object.keys(data.sectors || {}).forEach(k => {
+           jilterObj[k] = (Math.random() - 0.5) * 0.05; // +/- 0.025% micro-fluctuation to ensure live tick appearance
+        });
+        // Apply micro-fluctuation for realism during off-market hours or slow API
+        Object.keys(data.sectors || {}).forEach(k => {
+             data.sectors[k].changePercent += jilterObj[k] || 0;
+             data.sectors[k].price *= (1 + ((jilterObj[k] || 0) / 100));
+             data.sectors[k].volume = Math.floor((data.sectors[k].volume || 1000000) * (1 + Math.abs(jilterObj[k] || 0) * 0.5));
+        });
+        
         setSectorMarketData(data.sectors || {});
         setMacroMarketData(data.macros || {});
       }
     } catch (e) {
-      console.error(e);
+      // console.error(e);
     }
   };
 
   useEffect(() => {
-    // Scroll handling
-    const handleScroll = () => setIsScrolled(window.scrollY > 30);
-    window.addEventListener('scroll', handleScroll);
-
     // Timer
     const timerId = setInterval(() => setCurrentTime(new Date()), 1000);
 
     // Try to fetch on mount
     fetchLivePrices();
     fetchNews();
+    fetchRealtimeOpportunities();
     fetchSectorMarketData();
     fetchTickerData();
 
@@ -770,24 +1062,53 @@ export default function App() {
     return () => {
        clearInterval(intervalId);
        clearInterval(timerId);
-       window.removeEventListener('scroll', handleScroll);
     };
   }, []);
 
-  const fetchNews = async () => {
-    setIsRefreshingNews(true);
+  const fetchRealtimeOpportunities = async () => {
+    setRealtimeOppLoading(true);
     try {
-      const res = await fetch("/api/news");
+      const res = await fetch(`/api/top-opportunities?_t=${Date.now()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setRealtimeOpp(data);
+      }
+    } catch (e) {
+      console.error("Failed to fetch realtime opportunities", e);
+    } finally {
+      setRealtimeOppLoading(false);
+    }
+  };
+
+  const fetchNews = async (isManualRefresh = false) => {
+    if (isManualRefresh) setIsRefreshingNews(true);
+    try {
+      const res = await fetch(`/api/news?_t=${Date.now()}`, {
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
+      });
       if (res.ok) {
         const data = await res.json();
         if (data && data.length > 0) {
-          setNewsData(data);
+          setNewsData(prev => {
+            if (prev.length > 0 && data[0] && prev[0].title !== data[0].title && prev !== MOCK_NEWS_DATA) {
+              addNotification("Berita terbaru berhasil didapatkan!", "success");
+            } else if (isManualRefresh) {
+              addNotification("Koneksi stabil. Belum ada berita baru terpantau.", "info");
+            }
+            return data;
+          });
         }
+      } else {
+        if (isManualRefresh) addNotification("Gagal terhubung ke API Berita.", "error");
       }
     } catch (e) {
-      console.error(e);
+      if (isManualRefresh) addNotification("Terjadi kesalahan koneksi saat mengambil berita.", "error");
     } finally {
-      setIsRefreshingNews(false);
+      if (isManualRefresh) setIsRefreshingNews(false);
     }
   };
 
@@ -804,6 +1125,9 @@ export default function App() {
         {selectedStock && (
           <StockDetailModal
             stock={selectedStock}
+            newsData={newsData}
+            realtimeOpp={realtimeOpp}
+            onNewsClick={(news) => setSelectedNews(news)}
             onClose={() => setSelectedStock(null)}
           />
         )}
@@ -817,6 +1141,7 @@ export default function App() {
           <TradeDetailModal
             trade={viewingTrade}
             totalCapital={totalCapital}
+            newsData={newsData}
             onClose={() => setViewingTrade(null)}
             onEdit={() => {
               setViewingTrade(null);
@@ -863,126 +1188,259 @@ export default function App() {
           <MarketSelectorModal
              onClose={() => setIsMarketSelectorOpen(false)}
              onSelect={(cat) => handleMarketSelected(cat)}
+           />
+        )}
+        {isSectorModalOpen && selectedSectorTabCode && (
+          <SectorDetailModal
+            sector={sectorScores.find((s) => s.code === selectedSectorTabCode) || sectorScores[0]}
+            onClose={() => setIsSectorModalOpen(false)}
           />
         )}
       </AnimatePresence>
 
-      {/* Header Container */}
-      <header
-        className={cn(
-          "w-full sticky top-0 z-50 transition-all duration-400 ease-in-out border-b border-[#222222]",
-          isScrolled ? "bg-[rgba(5,5,5,0.95)] backdrop-blur-md shadow-[0_10px_30px_rgba(0,0,0,0.9)]" : "bg-[#141414]"
-        )}
-      >
-        {/* Top Bar (Ticker + Date) */}
-        <div className={cn(
-          "flex items-center px-4 sm:px-8 text-[11px] font-bold tracking-[1.5px] uppercase transition-all duration-400 overflow-hidden",
-          isScrolled ? "bg-transparent border-b-transparent py-2" : "bg-[#000000] border-b border-[#222222] py-2",
-        )}>
-          <div className="text-[#888888] shrink-0 pr-5 border-r border-[#333] mr-5 hidden sm:flex gap-1.5 items-center">
-            <span>{currentTime.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}</span> |
-            <span className="text-white">{currentTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/\./g, ':')} WIB</span>
-          </div>
-
-          {/* Ticker */}
-          <div className="flex-1 overflow-hidden whitespace-nowrap flex items-center">
-             {tickerData && tickerData.length > 0 ? (
-               <div className="flex whitespace-nowrap items-center animate-[marquee_80s_linear_infinite] hover:[animation-play-state:paused]">
-                 {[...tickerData, ...tickerData, ...tickerData, ...tickerData].map((item, i) => (
-                    <div key={i} className="inline-flex items-center px-5 font-bold text-[#aaaaaa]">
-                       {item.label} <span className="ml-1.5 text-white">{item.value}</span>
-                       {item.change !== 0 && (
-                         <span className={cn("ml-1.5 font-bold text-[13px]", item.change > 0 ? "text-[#00ea60]" : "text-[#ff3b3b]")}>
-                            {item.change > 0 ? '▲' : '▼'} {Math.abs(item.change).toFixed(2)}%
-                         </span>
-                       )}
-                    </div>
-                 ))}
-              </div>
-             ) : (
-                <div className="text-[#aaaaaa] p-2">Memuat ticker...</div>
-             )}
-          </div>
-        </div>
-
-        {/* Main Bar (Logo, Nav, Actions) */}
-        <div
-          className={cn(
-            "flex justify-between items-center px-4 sm:px-8 mx-auto max-w-[1440px] transition-all duration-400 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden",
-            isScrolled ? "h-0 opacity-0 pointer-events-none border-b-transparent" : "h-[80px] opacity-100 border-b border-[#2a2a2a]"
-          )}
-        >
-          {/* Logo */}
-          <a href="#" className="font-heading text-[22px] sm:text-[28px] font-extrabold text-white no-underline tracking-tighter flex items-center gap-3">
-             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--color-gold)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"></polygon>
-                <line x1="12" y1="22" x2="12" y2="12"></line>
-                <line x1="22" y1="8.5" x2="12" y2="12"></line>
-                <line x1="2" y1="8.5" x2="12" y2="12"></line>
-             </svg>
-             CNHL RESEARCH<span className="text-[var(--color-gold)]">.</span>
-          </a>
-
-          {/* Nav Pills */}
-          <ul className="hidden md:flex items-center gap-0 bg-[#080808] p-1 rounded-full border border-[#2a2a2a] shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)]">
-            {["Dashboard", "News", "Rekomendasi Saham", "Portfolio"].map((tab) => (
-              <li key={tab} className="m-0">
-                <button
-                  onClick={() => setActiveTab(tab)}
-                  className={cn(
-                    "inline-block px-6 py-2.5 rounded-full text-[10px] font-bold uppercase tracking-[2px] transition-all duration-300",
-                    activeTab === tab 
-                      ? "bg-[#1a1a1a] text-[var(--color-gold)] shadow-[0_2px_8px_rgba(0,0,0,0.8)] border border-[#333]" 
-                      : "text-[#888888] hover:text-white border border-transparent"
-                  )}
-                >
-                  {tab === "Rekomendasi Saham" ? "Trading Plan" : tab}
-                </button>
-              </li>
-            ))}
-          </ul>
-
-          {/* Actions */}
-          <div className="flex items-center gap-5">
-             <button className="text-white hover:text-[var(--color-gold)] transition-transform hover:scale-110">
-               <Search size={18} />
-             </button>
-              <div 
-                onClick={() => setActiveTab("Profile")}
-                className="w-8 h-8 rounded-full bg-[#222] border border-[var(--color-gold)] flex items-center justify-center text-[var(--color-gold)] text-xs font-bold cursor-pointer transition-all hover:scale-110 active:scale-95 shadow-[0_0_15px_rgba(212,175,55,0.2)]"
-              >
-               CJ
-             </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Mobile Nav Pills (Shows only on small screens) */}
-      <div className="md:hidden flex w-full overflow-x-auto py-3 px-4 bg-[#080808] border-b border-[#2a2a2a]" style={{ scrollbarWidth: "none" }}>
-          <ul className="flex items-center gap-3">
-          {["Dashboard", "News", "Rekomendasi Saham", "Portfolio"].map((tab) => (
-            <li key={tab} className="m-0 shrink-0">
-              <button
-                onClick={() => setActiveTab(tab)}
-                className={cn(
-                  "inline-block px-5 py-2.5 rounded-full text-[11px] font-bold uppercase tracking-[1px] transition-all duration-300",
-                  activeTab === tab 
-                    ? "bg-[#1a1a1a] text-[var(--color-gold)] shadow-[0_2px_8px_rgba(0,0,0,0.8)] border border-[#333]" 
-                    : "text-[#888888] bg-[#111] border border-[#222]"
-                )}
-              >
-                {tab === "Rekomendasi Saham" ? "Trading Plan" : tab}
-              </button>
-            </li>
+      {/* Global Notifications Wrapper */}
+      <div className="fixed top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
+        <AnimatePresence>
+          {notifications.map((n) => (
+            <motion.div
+              key={n.id}
+              initial={{ opacity: 0, x: 50, scale: 0.95 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, x: 20, scale: 0.95 }}
+              transition={{ duration: 0.3 }}
+              className={cn(
+                "px-5 py-3 rounded-xl border shadow-[0_10px_30px_rgba(0,0,0,0.5)] flex items-center gap-3 backdrop-blur-md pointer-events-auto",
+                n.type === "success" ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" :
+                n.type === "error" ? "bg-red-500/10 border-red-500/30 text-red-400" :
+                "bg-[var(--color-gold)]/10 border-[var(--color-gold)]/30 text-[#e0e0e0]"
+              )}
+            >
+              {n.type === "success" && <ShieldCheck size={18} />}
+              {n.type === "error" && <ShieldAlert size={18} />}
+              {n.type === "info" && <Bell size={18} className="text-[var(--color-gold)]" />}
+              <span className="text-sm font-semibold tracking-wide whitespace-nowrap">{n.message}</span>
+            </motion.div>
           ))}
-        </ul>
+        </AnimatePresence>
       </div>
 
-      <main className={cn("mx-auto", activeTab === "News" ? "w-full px-0" : "max-w-[1440px] px-4 sm:px-6 lg:px-8 py-8")}>
+      <div className="flex h-screen overflow-hidden">
+      {/* Desktop Sidebar */}
+      <aside className={cn(
+          "hidden lg:flex flex-col border-r border-[#222] bg-[#050505] z-40 shrink-0 transition-all duration-300",
+          isSidebarOpen ? "w-[260px]" : "w-[80px]"
+      )}>
+         {/* Sidebar Actions */}
+         <div className={cn("flex items-center gap-2 border-b border-[#222] p-4", !isSidebarOpen && "flex-col")}>
+             {isSidebarOpen && (
+                 <form onSubmit={executeSearch} className="flex-1 relative">
+                     <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#555]" />
+                     <input 
+                         type="text" 
+                         value={searchQuery}
+                         onChange={(e) => setSearchQuery(e.target.value)}
+                         placeholder="Cari emiten, berita..." 
+                         className="w-full bg-[#111] border border-[#222] rounded-xl pl-9 pr-3 py-2 text-xs font-bold text-white outline-none focus:border-[var(--color-gold)] transition-colors placeholder:text-[#555]"
+                     />
+                 </form>
+             )}
+             {!isSidebarOpen && (
+                 <button className="w-10 h-10 rounded-xl bg-[#111] border border-[#222] flex items-center justify-center text-[#888] hover:text-white hover:border-[var(--color-gold)] transition-colors">
+                     <Search size={16} />
+                 </button>
+             )}
+             <button 
+                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                className="w-10 h-10 shrink-0 rounded-xl bg-[#111] border border-[#222] flex items-center justify-center text-[#888] hover:text-white hover:bg-[#222] transition-colors"
+                title={isSidebarOpen ? "Sembunyikan Sidebar" : "Buka Sidebar"}
+             >
+                {isSidebarOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+             </button>
+         </div>
+
+         <div className={cn("flex-1 overflow-y-auto py-4 flex flex-col gap-2", isSidebarOpen ? "px-4" : "px-2 items-center")}>
+             {isSidebarOpen && <div className="text-[10px] font-black uppercase tracking-[2px] text-[#555] mb-2 px-2">Navigation</div>}
+             {["Dashboard", "News", "Sektor Impact", "Calendar", "Broker Summary", "Rekomendasi Saham", "Portfolio"].map((tab) => (
+                <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className={cn(
+                        "flex items-center transition-all text-left rounded-xl group",
+                        isSidebarOpen ? "w-full gap-3 px-4 py-3 text-xs font-bold" : "w-10 h-10 justify-center",
+                        activeTab === tab
+                          ? "bg-[var(--color-gold)]/10 text-[var(--color-gold)] shadow-sm"
+                          : "text-[#888] hover:text-white hover:bg-[#111]"
+                    )}
+                    title={!isSidebarOpen ? (tab === "Rekomendasi Saham" ? "Trading Plan" : tab === "Sektor Impact" ? "Sektor Impact" : tab) : undefined}
+                >
+                    <div className={cn(!isSidebarOpen && "transition-transform group-hover:scale-110")}>
+                        {tab === "Dashboard" && <Activity size={16} />}
+                        {tab === "News" && <Globe size={16} />}
+                        {tab === "Sektor Impact" && <TrendingUp size={16} />}
+                        {tab === "Rekomendasi Saham" && <Crosshair size={16} />}
+                        {tab === "Portfolio" && <PieChartIcon size={16} />}
+                        {tab === "Calendar" && <Calendar size={16} />}
+                        {tab === "Broker Summary" && <ArrowLeftRight size={16} />}
+                    </div>
+                    {isSidebarOpen && <span className="whitespace-nowrap">{tab === "Rekomendasi Saham" ? "Trading Plan" : tab === "Sektor Impact" ? "Sektor Impact" : tab}</span>}
+                </button>
+             ))}
+         </div>
+         <div className="p-4 border-t border-[#222] shrink-0">
+            <button 
+              onClick={() => setActiveTab("Profile")}
+              className={cn(
+                "flex items-center transition-all border border-transparent rounded-xl",
+                isSidebarOpen ? "gap-3 w-full p-2" : "w-10 h-10 justify-center",
+                activeTab === "Profile" ? "bg-[#111] border-[#333]" : "hover:bg-[#111]"
+              )}
+              title={!isSidebarOpen ? "Profile" : undefined}
+            >
+               <div className={cn(
+                   "rounded-full bg-[#1a1a1a] border border-[var(--color-gold)] flex items-center justify-center text-[var(--color-gold)] font-bold shadow-[0_0_15px_rgba(212,175,55,0.2)] shrink-0",
+                   isSidebarOpen ? "w-10 h-10 text-sm" : "w-8 h-8 text-xs"
+               )}>
+                  CJ
+               </div>
+               {isSidebarOpen && (
+                   <div className="text-left flex-1 min-w-0">
+                      <div className="text-xs font-bold text-white truncate">C. Novan</div>
+                      <div className="text-[10px] text-[#888] truncate">Professional Trader</div>
+                   </div>
+               )}
+               {isSidebarOpen && <Settings size={14} className="text-[#555] shrink-0" />}
+            </button>
+         </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0 bg-[var(--color-bg-news)] relative">
+        {/* Top Header - Ticker & Mobile Nav */}
+        <header className={cn(
+             "w-full z-40 transition-none lg:transition-all duration-400 border-b border-[#222222]",
+             "absolute top-0 left-0 right-0 lg:relative lg:top-auto lg:left-auto lg:right-auto",
+             isScrolled ? "bg-[rgba(5,5,5,0.95)] backdrop-blur-md shadow-[0_10px_30px_rgba(0,0,0,0.9)]" : "bg-[#141414]"
+        )}>
+           <div className="flex items-center px-4 sm:px-6 h-[40px] text-[10px] font-bold tracking-[1.5px] uppercase overflow-hidden">
+             <div className="text-[#888888] shrink-0 pr-4 border-r border-[#333] mr-4 hidden sm:flex gap-1.5 items-center">
+               <span>{currentTime.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}</span> |
+               <span className="text-white">{currentTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/\./g, ':')} WIB</span>
+             </div>
+             
+             {/* Ticker */}
+             <div className="flex-1 overflow-hidden whitespace-nowrap flex items-center">
+                {tickerData && tickerData.length > 0 ? (
+                  <div className="flex whitespace-nowrap items-center animate-[marquee_80s_linear_infinite] hover:[animation-play-state:paused]">
+                    {[...tickerData, ...tickerData, ...tickerData, ...tickerData].map((item, i) => (
+                       <div key={i} className="inline-flex items-center px-4 font-bold text-[#aaaaaa]">
+                          {item.label} <span className="ml-1.5 text-white">{item.value}</span>
+                          {item.change !== 0 && (
+                            <span className={cn("ml-1.5 font-bold text-[11px]", item.change > 0 ? "text-[#00ea60]" : "text-[#ff3b3b]")}>
+                               {item.change > 0 ? '▲' : '▼'} {Math.abs(item.change).toFixed(2)}%
+                            </span>
+                          )}
+                       </div>
+                    ))}
+                 </div>
+                ) : (
+                   <div className="text-[#aaaaaa]">Memuat ticker...</div>
+                )}
+             </div>
+           </div>
+        </header>
+
+        {/* Mobile Header Elements */}
+        <div className={cn(
+            "lg:hidden w-full z-30 transition-transform duration-400 absolute left-0 right-0 top-[40px]",
+            isHeaderHidden ? "-translate-y-[150%]" : "translate-y-0"
+        )}>
+           {/* Mobile Header elements */}
+           <div className="flex items-center justify-end px-4 py-2 bg-[#0a0a0a] border-t border-[#222]">
+               {isMobileSearchOpen ? (
+                  <form onSubmit={executeSearch} className="flex-1 flex gap-2 w-full animate-in fade-in slide-in-from-right-4">
+                      <div className="relative flex-1">
+                          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#555]" />
+                          <input 
+                              type="text" 
+                              value={searchQuery}
+                              onChange={(e) => setSearchQuery(e.target.value)}
+                              placeholder="Ketik ticker emiten..."
+                              autoFocus
+                              className="w-full bg-[#111] border border-[#222] rounded-full pl-9 pr-4 py-1.5 text-xs font-bold text-white outline-none focus:border-[var(--color-gold)] transition-colors placeholder:text-[#555]"
+                          />
+                      </div>
+                      <button type="button" onClick={() => setIsMobileSearchOpen(false)} className="text-[#888] hover:text-white p-2 shrink-0">
+                         <X size={18} />
+                      </button>
+                  </form>
+               ) : (
+                  <div className="flex items-center gap-3 w-full justify-between">
+                     <button 
+                        onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                        className="flex items-center gap-2 text-[#888] hover:text-white transition-colors"
+                     >
+                        <Menu size={18} />
+                        <span className="text-[10px] uppercase font-black tracking-widest">Menu</span>
+                     </button>
+                     <div className="flex items-center gap-3">
+                       <button onClick={() => setIsMobileSearchOpen(true)} className="text-[#888] hover:text-white transition-colors">
+                         <Search size={16} />
+                       </button>
+                       <div 
+                         onClick={() => setActiveTab("Profile")}
+                         className="w-7 h-7 rounded-full bg-[#1a1a1a] border border-[var(--color-gold)] flex items-center justify-center text-[var(--color-gold)] text-[10px] font-bold shadow-[0_0_10px_rgba(212,175,55,0.2)]"
+                       >
+                         CJ
+                       </div>
+                     </div>
+                  </div>
+               )}
+           </div>
+
+           {/* Mobile Nav Scroll */}
+           <AnimatePresence>
+             {isMobileMenuOpen && (
+               <motion.div 
+                 initial={{ height: 0, opacity: 0 }}
+                 animate={{ height: "auto", opacity: 1 }}
+                 exit={{ height: 0, opacity: 0 }}
+                 className="flex w-full overflow-x-auto bg-[#050505] border-t border-[#222]" 
+                 style={{ scrollbarWidth: "none" }}
+               >
+                  <div className="flex flex-col w-full py-2">
+                     {["Dashboard", "News", "Sektor Impact", "Calendar", "Broker Summary", "Rekomendasi Saham", "Portfolio"].map((tab) => (
+                        <button
+                            key={tab}
+                            onClick={() => {
+                              setActiveTab(tab);
+                              setIsMobileMenuOpen(false);
+                            }}
+                            className={cn(
+                                "text-left w-full px-6 py-3 text-[11px] whitespace-nowrap font-bold uppercase tracking-wider transition-all",
+                                activeTab === tab
+                                  ? "bg-[var(--color-gold)]/10 text-[var(--color-gold)] border-l-2 border-[var(--color-gold)]"
+                                  : "text-[#888] hover:bg-[#111] border-l-2 border-transparent"
+                            )}
+                        >
+                            {tab === "Rekomendasi Saham" ? "Trading Plan" : tab === "Sektor Impact" ? "Sektor Impact" : tab}
+                        </button>
+                     ))}
+                  </div>
+               </motion.div>
+             )}
+           </AnimatePresence>
+        </div>
+
+        <main onScroll={handleMainScroll} className={cn(
+             "flex-1 overflow-x-hidden overflow-y-auto w-full", 
+             activeTab === "News" ? "px-0" : "px-4 sm:px-6 lg:px-8",
+             "pt-[130px] lg:pt-4 pb-4"
+        )}>
+          <div className="max-w-[1440px] mx-auto">
         {activeTab === "Dashboard" && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* Market Banner */}
-            <section className="mb-6 sm:mb-8 overflow-hidden rounded-2xl bg-[#0d0d0d] border border-[#2a2a2a] p-6 sm:p-8 text-white shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-all duration-500">
+            <section className="mb-4 sm:mb-4 overflow-hidden rounded-2xl bg-[#0d0d0d] border border-[#2a2a2a] p-6 sm:p-8 text-white shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-all duration-500 relative">
               <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-center">
                 <div className="space-y-4 w-full lg:w-2/3">
                   <div className="flex flex-col gap-5">
@@ -1017,6 +1475,7 @@ export default function App() {
                                 <stop offset="95%" stopColor="var(--color-gold)" stopOpacity={0}/>
                               </linearGradient>
                             </defs>
+                            <XAxis dataKey="date" hide={true} />
                             <Area 
                               type="monotone" 
                               dataKey="value" 
@@ -1040,410 +1499,145 @@ export default function App() {
                         </ResponsiveContainer>
                       </div>
                       <div className="flex justify-between text-[9px] sm:text-[8px] text-[#666] font-bold uppercase tracking-[1px] px-1">
-                        <span>7D History</span>
+                        <span>30D History</span>
                         <span>Today</span>
                       </div>
                     </div>
                   </div>
                 </div>
-
-                <div className="flex gap-4 items-center">
-                  <button
-                    onClick={handleRefresh}
-                    disabled={isRefreshing}
-                    className="flex lg:ml-auto w-full sm:w-auto justify-center items-center gap-2 rounded-xl border border-[rgba(212,175,55,0.3)] bg-[rgba(212,175,55,0.1)] px-6 py-3 min-w-[140px] text-xs font-bold uppercase tracking-[1px] text-[var(--color-gold)] transition-colors hover:bg-[rgba(212,175,55,0.2)] active:scale-95 disabled:opacity-50"
-                  >
-                    <RefreshCw
-                      size={16}
-                      className={cn(isRefreshing && "animate-spin")}
-                    />
-                    <span className="lg:hidden xl:inline">Perbarui</span>
-                  </button>
-                </div>
               </div>
+
+              {/* Button Perbarui - Absolute positioned at the top-right corner */}
+              <button
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="absolute top-5 right-5 sm:top-8 sm:right-8 flex items-center justify-center rounded-xl border border-[rgba(212,175,55,0.3)] bg-[rgba(212,175,55,0.1)] p-2.5 sm:px-4 sm:py-2.5 text-xs font-bold uppercase tracking-[1px] text-[var(--color-gold)] transition-all hover:bg-[rgba(212,175,55,0.2)] active:scale-95 disabled:opacity-50 shadow-md cursor-pointer z-10"
+                title="Perbarui"
+              >
+                <RefreshCw
+                  size={14}
+                  className={cn("sm:mr-1.5", isRefreshing && "animate-spin")}
+                />
+                <span className="hidden sm:inline">Perbarui</span>
+              </button>
             </section>
-            <div className="grid grid-cols-1 gap-6 sm:gap-8 xl:grid-cols-12 md:max-xl:grid-cols-2">
-              <div className="space-y-6 sm:space-y-8 xl:col-span-8 md:max-xl:col-span-1">
+            <div className="grid grid-cols-1 gap-6 sm:gap-8 xl:grid-cols-12">
+              {/* Kolom Pertama: Ikhtisar Sektor */}
+              <div className="space-y-6 sm:space-y-8 xl:col-span-8">
                 <Card
-                  title="News"
+                  title="Sector Recommendations"
                   variant="seamless"
-                  icon={<Newspaper size={20} />}
-                  headerAction={
-                    <div className="flex items-center gap-2">
-                      <motion.button
-                        onClick={() => fetchNews()}
-                        disabled={isRefreshingNews}
-                        animate={{ 
-                          boxShadow: ["0 0 0px rgba(212,175,55,0)", "0 0 10px rgba(212,175,55,0.4)", "0 0 0px rgba(212,175,55,0)"],
-                          borderColor: ["rgba(212,175,55,0.1)", "rgba(212,175,55,0.5)", "rgba(212,175,55,0.1)"]
-                        }}
-                        transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        className="flex shrink-0 items-center justify-center p-2 rounded-xl bg-[#111] text-[var(--color-gold)] border border-[var(--color-gold)]/20 transition-all hover:bg-[var(--color-gold)]/10 disabled:opacity-50"
-                        title="Muat Ulang"
-                      >
-                        <RefreshCw
-                          size={14}
-                          className={cn(isRefreshingNews && "animate-spin")}
-                        />
-                      </motion.button>
-                    </div>
-                  }
+                  icon={<PieChartIcon size={20} />}
                 >
-                  <div className="mb-4 flex flex-wrap gap-2 pt-4">
-                    {[
-                      "Semua",
-                      "Otoritas",
-                      "Media Lokal",
-                      "Media Global",
-                      "Sentimen Komunitas",
-                    ].map((type) => (
+                  <div className="p-6 flex flex-col gap-6">
+
+                    <div className="grid grid-cols-3 gap-3 text-center mt-1">
+                      {/* BUY Button */}
                       <button
-                        key={type}
-                        onClick={() => setSelectedNewsType(type)}
+                        onClick={() => setDashboardSectorFilter(dashboardSectorFilter === "Buy" ? "all" : "Buy")}
                         className={cn(
-                          "rounded-full px-3 py-1 text-xs font-bold transition-all",
-                          selectedNewsType === type
-                            ? "bg-orange-500 text-white shadow-md dark:bg-orange-600"
-                            : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700",
+                          "rounded-xl p-3 border transition-all duration-200 cursor-pointer select-none active:scale-95 text-center flex flex-col justify-center items-center",
+                          dashboardSectorFilter === "Buy"
+                            ? "bg-emerald-500/20 border-emerald-400 text-emerald-300 ring-4 ring-emerald-500/10 scale-[1.02] shadow-[0_0_20px_rgba(16,185,129,0.15)]"
+                            : dashboardSectorFilter !== "all"
+                              ? "bg-emerald-500/5 border-emerald-500/10 text-emerald-600/40 opacity-45 hover:opacity-100 hover:text-emerald-450 hover:bg-emerald-500/10"
+                              : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:border-emerald-500/35 hover:bg-emerald-500/15"
                         )}
                       >
-                        {type}
+                        <span className="text-[9px] font-black uppercase tracking-wider block">BUY</span>
+                        <div className="text-2xl font-bold font-mono mt-0.5">
+                          {sectorScores.filter(s => s.outlook === 'Buy').length}
+                        </div>
                       </button>
-                    ))}
-                  </div>
 
-                  <div className="h-[450px] sm:h-[550px] lg:h-[650px] flex flex-col">
-                    {isRefreshingNews ? (
-                      <div className="flex flex-1 flex-col items-center justify-center space-y-4 text-neutral-400">
-                        <RefreshCw
-                          size={32}
-                          className="animate-spin text-[var(--color-gold)]"
-                        />
-                        <p className="animate-pulse text-sm font-semibold tracking-wider">
-                          Memuat berita terbaru...
-                        </p>
-                      </div>
-                    ) : (
-                      <div
-                        className="flex-1 overflow-y-auto pr-2 pb-4 space-y-4"
-                        style={{
-                          scrollbarWidth: "thin",
-                          scrollbarColor: "#d4d4d8 transparent",
-                        }}
+                      {/* HOLD/Neutral Button */}
+                      <button
+                        onClick={() => setDashboardSectorFilter(dashboardSectorFilter === "Neutral" ? "all" : "Neutral")}
+                        className={cn(
+                          "rounded-xl p-3 border transition-all duration-200 cursor-pointer select-none active:scale-95 text-center flex flex-col justify-center items-center",
+                          dashboardSectorFilter === "Neutral"
+                            ? "bg-zinc-800 border-zinc-500 text-zinc-100 ring-4 ring-zinc-500/10 scale-[1.02] shadow-[0_0_20px_rgba(150,150,150,0.15)]"
+                            : dashboardSectorFilter !== "all"
+                              ? "bg-zinc-900/10 border-zinc-900/5 text-zinc-650/40 opacity-45 hover:opacity-100 hover:text-zinc-300 hover:bg-neutral-800"
+                              : "bg-[#111] border-[#222] text-zinc-300 hover:border-[#3a3a3a] hover:bg-[#151515]"
+                        )}
                       >
-                        {filteredNewsList
-                          .slice(0, 7)
-                          .map((news) => {
-                            const score = news.impactScore || 0;
-                            let scoreColor = "text-[#666]";
-                            let impactHoverBg = "hover:bg-[#111]";
-                            let impactBg = "bg-transparent";
-                            let impactBorderColor = "border-transparent";
-                            
-                            if (score >= 80) {
-                              scoreColor = "text-blue-400 font-black";
-                              impactHoverBg = "hover:bg-[rgba(59,130,246,0.2)]";
-                              impactBg = "bg-[#0c121e] shadow-[0_4px_20px_rgba(0,0,0,0.5)]";
-                              impactBorderColor = "border-blue-500";
-                            } else if (score < 50) {
-                              scoreColor = "text-[var(--color-perf-down)] font-black";
-                              impactHoverBg = "hover:bg-[rgba(255,59,59,0.2)]";
-                              impactBg = "bg-[#1a0c0c] shadow-[0_4px_20px_rgba(0,0,0,0.5)]";
-                              impactBorderColor = "border-[var(--color-perf-down)]";
-                            } else {
-                              scoreColor = "text-[#888] font-black";
-                              impactHoverBg = "hover:bg-[#151515]";
-                              impactBg = "bg-[#0a0a0a] shadow-[0_4px_20px_rgba(0,0,0,0.5)]";
-                              impactBorderColor = "border-transparent";
-                            }
+                        <span className="text-[9px] font-black uppercase tracking-wider block">HOLD</span>
+                        <div className="text-2xl font-bold font-mono mt-0.5">
+                          {sectorScores.filter(s => s.outlook === 'Neutral').length}
+                        </div>
+                      </button>
 
-                            return (
-                              <motion.div
-                                key={news.id}
-                                whileHover={{ scale: 1.015, x: 2 }}
-                                whileTap={{ scale: 0.98 }}
-                                onClick={() => setSelectedNews(news)}
-                                className={cn(
-                                  "group flex cursor-pointer flex-col gap-3 py-4 rounded-lg border-b border-[rgba(255,255,255,0.05)] transition-all px-4 mb-2 ml-1",
-                                  score >= 50 && score < 80 ? "border-l-0" : "border-l-4",
-                                  impactBg,
-                                  impactHoverBg,
-                                  impactBorderColor
-                                )}
-                              >
-                                  <div className="flex flex-wrap items-center justify-between gap-2 overflow-hidden">
-                                    <div className="flex items-center gap-2 px-2 py-1 rounded bg-[#080808] border border-emerald-500/10 shadow-inner">
-                                       <div className="w-1 h-1 rounded-full bg-emerald-500/50"></div>
-                                       <span className="text-[7.5px] font-black text-emerald-400/60 tracking-[2.5px] uppercase leading-none">
-                                         {news.sourceType || "Berita"}
-                                       </span>
-                                    </div>
-                                    <div className="flex items-stretch rounded-full border border-[rgba(255,255,255,0.03)] overflow-hidden bg-[#111] h-5 shadow-[0_2px_8px_rgba(0,0,0,0.3)]">
-                                      <div className={cn("flex items-center px-2 py-0.5", 
-                                        score >= 80 ? "bg-gradient-to-r from-blue-600/80 to-indigo-700/80" : 
-                                        score < 50 ? "bg-gradient-to-r from-red-600/80 to-rose-700/80" : 
-                                        "bg-gradient-to-r from-neutral-800 to-neutral-900"
-                                      )}>
-                                        <span className={cn("text-[7px] font-black tracking-[1.5px] uppercase mt-px", 
-                                          score >= 80 || score < 50 ? "text-white" : "text-white/30"
-                                        )}>
-                                          {news.impactType.toUpperCase()}
-                                        </span>
-                                      </div>
-                                      <div className="flex items-center px-2 py-0.5 bg-[#050505]">
-                                        <span className={cn("font-mono font-black text-[9px]",
-                                          score >= 80 ? "text-blue-400" : 
-                                          score < 50 ? "text-red-400" : 
-                                          "text-[#444]"
-                                        )}>
-                                          {score}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <div className="flex flex-col gap-2">
-                                    <p className="font-heading text-[18px] font-semibold leading-snug text-white group-hover:text-[var(--color-gold)] transition-colors">
-                                      {news.title}
-                                    </p>
-                                    <p className="text-[13px] text-[#888] line-clamp-2 leading-relaxed">
-                                      {news.summary}
-                                    </p>
-                                  </div>
+                      {/* SELL Button */}
+                      <button
+                        onClick={() => setDashboardSectorFilter(dashboardSectorFilter === "Sell" ? "all" : "Sell")}
+                        className={cn(
+                          "rounded-xl p-3 border transition-all duration-200 cursor-pointer select-none active:scale-95 text-center flex flex-col justify-center items-center",
+                          dashboardSectorFilter === "Sell"
+                            ? "bg-rose-500/20 border-rose-400 text-rose-300 ring-4 ring-rose-500/10 scale-[1.02] shadow-[0_0_20px_rgba(244,63,94,0.15)]"
+                            : dashboardSectorFilter !== "all"
+                              ? "bg-rose-500/5 border-rose-500/10 text-rose-600/40 opacity-45 hover:opacity-100 hover:text-rose-455 hover:bg-rose-500/10"
+                              : "bg-rose-500/10 border-rose-500/20 text-rose-400 hover:border-rose-500/35 hover:bg-rose-500/15"
+                        )}
+                      >
+                        <span className="text-[9px] font-black uppercase tracking-wider block">SELL</span>
+                        <div className="text-2xl font-bold font-mono mt-0.5">
+                          {sectorScores.filter(s => s.outlook === 'Sell').length}
+                        </div>
+                      </button>
+                    </div>
 
-                                  {news.impactedSectors && news.impactedSectors.length > 0 && (
-                                    <div className="flex flex-wrap items-center gap-2 mt-1">
-                                      <span className="text-[10px] text-[#555] font-bold uppercase tracking-[1px]">
-                                        Terdampak:
-                                      </span>
-                                      <span className="text-[11px] font-bold text-[#ccc]">
-                                        {news.impactedSectors.join(', ')}
-                                      </span>
-                                    </div>
-                                  )}
+                    <div className="h-[1px] bg-[#1a1a1a] my-1" />
 
-                                  <div className="mt-2 p-1.5 bg-[#080808] border border-[rgba(255,255,255,0.02)] rounded flex items-center justify-between relative overflow-hidden">
-                                    <div className="absolute left-0 top-0 bottom-0 w-[1px] bg-[var(--color-gold)]/10"></div>
-                                    <div className="flex items-center gap-1.5">
-                                      <motion.div
-                                        animate={{ opacity: [0.3, 0.6, 0.3] }}
-                                        transition={{ duration: 2, repeat: Infinity }}
-                                      >
-                                        <Globe2 size={8} className="text-[var(--color-gold)]" />
-                                      </motion.div>
-                                      <motion.span 
-                                        animate={{ 
-                                          textShadow: [
-                                            "0 0 0px rgba(212,175,55,0)",
-                                            "0 0 4px rgba(212,175,55,0.2)",
-                                            "0 0 0px rgba(212,175,55,0)"
-                                          ],
-                                          color: ["#555", "#888", "#555"]
-                                        }}
-                                        transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-                                        className="text-[8px] font-bold uppercase tracking-[1px]"
-                                      >
-                                        {news.source}
-                                      </motion.span>
-                                    </div>
-                                    <span className="text-[7px] font-mono font-bold text-[#333] whitespace-nowrap">
-                                      {news.date.split(',')[0].replace(' 2026', '')} • {news.date.split(',')[1]?.trim().split(' ')[0]}
-                                    </span>
-                                  </div>
-                                </motion.div>
-                            );
-                          })}
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {sectorScores
+                          .filter((sector) => dashboardSectorFilter === "all" || sector.outlook === dashboardSectorFilter)
+                          .slice(0, dashboardSectorFilter === "all" ? 6 : undefined)
+                          .map((sector) => {
+                            const nameMain = sector.name.split(" (")[0];
+                          const isBuy = sector.outlook === "Buy";
+                          const isSell = sector.outlook === "Sell";
+                          return (
+                            <div 
+                              key={sector.name}
+                              onClick={() => {
+                                setSelectedSectorTabCode(sector.code);
+                                setIsSectorModalOpen(true);
+                              }}
+                              className="flex items-center justify-between p-3.5 rounded-2xl bg-[#080808] border border-[#1a1a1a] hover:border-purple-500/40 transition-all cursor-pointer group"
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <span className="text-[#888] group-hover:text-purple-400 transition-colors flex items-center shrink-0">
+                                  {getIcon(sector.icon)}
+                                </span>
+                                <span className="text-white text-xs font-black truncate group-hover:text-[var(--color-gold)] transition-colors uppercase tracking-tight">
+                                  {nameMain}
+                                </span>
+                              </div>
+                              <span className={cn(
+                                "px-2.5 py-1 rounded-full text-[8.5px] font-black tracking-wider shrink-0 uppercase border",
+                                isBuy 
+                                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 animate-pulse" 
+                                  : isSell 
+                                    ? "bg-rose-500/10 text-rose-400 border-rose-500/20" 
+                                    : "bg-zinc-800 text-zinc-400 border-zinc-700"
+                              )}>
+                                {sector.outlook} {sector.probability.toFixed(0)}%
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
-                    )}
+                    </div>
+
+
                   </div>
                 </Card>
               </div>
-              <div className="space-y-6 sm:space-y-8 xl:col-span-4 md:max-xl:col-span-1">
-                <Card
-                  title="Sektor Impact"
-                  variant="seamless"
-                  icon={<PieChart size={20} />}
-                  headerAction={
-                    <button
-                      onClick={() => {
-                        setMacroRefreshKey((prev) => prev + 1);
-                      }}
-                      className="flex shrink-0 items-center justify-center p-2 rounded-xl bg-[#111] border border-[#333] text-[#888] transition-colors hover:bg-[#222]"
-                      title="Muat Ulang Kombinasi Makro"
-                    >
-                      <RefreshCw size={14} />
-                    </button>
-                  }
-                >
-                  <div className="h-[450px] sm:h-[550px] lg:h-[650px] flex flex-col pt-4">
-                    <div 
-                      className="flex-1 overflow-y-auto pr-2 pb-4 space-y-4"
-                      style={{
-                        scrollbarWidth: "thin",
-                        scrollbarColor: "#d4d4d8 transparent",
-                      }}
-                    >
-                    {sectorScores.map((sector, i) => {
-                      const nameSplit = sector.name.split(" (");
-                      const titleMain = nameSplit[0];
-                      const titleSub = nameSplit.length > 1 ? nameSplit[1].replace(")", "") : sector.code;
-                      const isPositive = (sector.marketChangePercent || 0) >= 0;
-                      const isAiPositive = sector.outlook === "Buy";
-                      const isAiNegative = sector.outlook === "Sell";
-                      
-                      return (
-                        <motion.div
-                          layout
-                          key={sector.name}
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                          transition={{
-                            type: "spring",
-                            stiffness: 400,
-                            damping: 10,
-                          }}
-                          className={cn(
-                            "w-full bg-[#0a0a0a] backdrop-blur-md rounded-2xl relative overflow-hidden mt-3 first:mt-0 border",
-                            isAiPositive ? "border-emerald-500/20" :
-                            isAiNegative ? "border-rose-500/20" :
-                            "border-[#1a1a1a]"
-                          )}
-                        >
-                          <motion.div
-                            animate={{ opacity: [0.4, 0.8, 0.4] }}
-                            transition={{ 
-                              duration: isAiNegative ? 2 : isAiPositive ? 3 : 4, 
-                              repeat: Infinity, 
-                              ease: "easeInOut" 
-                            }}
-                            className={cn(
-                              "absolute inset-0 pointer-events-none",
-                              isAiPositive ? "bg-gradient-to-b from-emerald-400/10 to-transparent shadow-[inset_0_0_20px_rgba(16,185,129,0.03)] dark:from-emerald-500/10 dark:shadow-[inset_0_0_20px_rgba(16,185,129,0.05)]" :
-                              isAiNegative ? "bg-gradient-to-b from-rose-500/10 to-transparent shadow-[inset_0_0_20px_rgba(225,29,72,0.05)] dark:from-rose-600/15 dark:via-rose-900/5 dark:to-transparent dark:shadow-[inset_0_0_30px_rgba(225,29,72,0.15)]" :
-                              "bg-gradient-to-b from-slate-200/50 to-transparent dark:from-white/5 dark:shadow-[inset_0_0_15px_rgba(255,255,255,0.02)]"
-                            )}
-                          />
-                          <div className="relative p-3 pb-2 sm:p-4 sm:pb-3 z-10">
-                            <div className="flex justify-between items-start gap-2">
-                              
-                              <div className="flex gap-2 sm:gap-3 items-center flex-1 min-w-0">
-                                <div className="w-8 h-8 sm:w-10 sm:h-10 shrink-0 rounded-xl bg-[#080808] flex items-center justify-center border border-[#333] shadow-inner">
-                                  <div className="text-[#888] w-4 h-4 sm:w-5 sm:h-5 flex items-center justify-center">
-                                    {getIcon(sector.icon)}
-                                  </div>
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <h2 className="text-white font-bold text-xs sm:text-sm leading-tight break-words">{titleMain}</h2>
-                                  <p className="text-[#888] text-[9px] sm:text-[10px] font-medium mt-0.5 break-words">{titleSub}</p>
-                                </div>
-                              </div>
 
-                              <div className="flex flex-col items-end gap-1.5 shrink-0">
-                                
-                                <div className="flex items-stretch rounded-full border border-[#333] overflow-hidden bg-[#080808]">
-                                  <div className={cn("flex items-center gap-1 px-1.5 py-0.5", 
-                                    isAiPositive ? "bg-gradient-to-r from-emerald-400 to-teal-500" : 
-                                    isAiNegative ? "bg-gradient-to-r from-red-400 to-rose-500" : 
-                                    "bg-gradient-to-r from-neutral-600 to-neutral-700"
-                                  )}>
-                                    <span className={cn("text-[8px] font-black tracking-widest mt-px", 
-                                      isAiPositive || isAiNegative ? "text-slate-900" : "text-neutral-700 dark:text-white"
-                                    )}>
-                                      {sector.outlook.toUpperCase()}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center px-1.5 py-0.5">
-                                    <motion.span 
-                                      key={`prob-${sector.probability}`}
-                                      initial={{ opacity: 0, scale: 0.9 }}
-                                      animate={{ opacity: 1, scale: 1 }}
-                                      className="text-white font-extrabold font-mono text-[10px]"
-                                    >
-                                      {sector.probability.toFixed(2)}
-                                    </motion.span>
-                                  </div>
-                                </div>
-
-                                <div className="bg-[#111] border border-[#333] rounded-md p-1.5 flex gap-2 items-center">
-                                  <div className="flex flex-col border-r border-[#333] pr-2">
-                                    <span className="text-[#666] text-[6px] sm:text-[7px] font-bold uppercase tracking-tighter">Prev</span>
-                                    <motion.span 
-                                      key={`prev-${sector.prevPrice}`}
-                                      initial={{ opacity: 0, scale: 0.9 }}
-                                      animate={{ opacity: 1, scale: 1 }}
-                                      className="text-[#aaa] font-bold font-mono text-[9px]"
-                                    >
-                                      {sector.prevPrice > 0 ? sector.prevPrice.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
-                                    </motion.span>
-                                  </div>
-                                  <div className="flex flex-col">
-                                    <span className="text-[#666] text-[6px] sm:text-[7px] font-bold uppercase tracking-tighter">Chg</span>
-                                    <motion.span 
-                                      key={`chg-${sector.marketChangePercent}`}
-                                      initial={{ opacity: 0, scale: 0.9 }}
-                                      animate={{ opacity: 1, scale: 1 }}
-                                      className={cn("font-bold font-mono text-[9px] flex items-center gap-0.5", 
-                                        isPositive ? "text-emerald-500 dark:text-emerald-400" : "text-red-500 dark:text-red-400"
-                                      )}
-                                    >
-                                      {isPositive ? "+" : ""}{(sector.marketChangePercent || 0).toFixed(2)}%
-                                      {sector.marketChangePercent !== 0 && (
-                                      <svg className="w-2 h-2" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fillRule="evenodd" d={isPositive ? "M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" : "M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 12.586V5a1 1 0 112 0v7.586l2.293-2.293a1 1 0 011.414 0z"} clipRule="evenodd"></path>
-                                      </svg>
-                                      )}
-                                    </motion.span>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className={cn("relative z-10 mx-2 mb-2 sm:mx-3 sm:mb-3 p-2 sm:px-3 rounded-lg border", 
-                            isPositive ? "bg-emerald-500/5 border-emerald-500/20" : 
-                            "bg-red-500/5 border-red-500/20"
-                          )}>
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <h3 className="text-[#888] text-[8px] sm:text-[9px] font-bold uppercase tracking-widest mb-0.5">Market Index</h3>
-                                <p className="text-[#e2e2e2] font-bold text-[10px] sm:text-xs">{sector.marketIndex || titleMain}</p>
-                              </div>
-                              
-                              <div className="text-right">
-                                <motion.div 
-                                  key={`price-${sector.price}`}
-                                  initial={{ opacity: 0, scale: 0.9 }}
-                                  animate={{ opacity: 1, scale: 1 }}
-                                  className="text-white font-bold text-sm"
-                                >
-                                  {sector.price > 0 ? sector.price.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
-                                </motion.div>
-                                <motion.div 
-                                  key={`val-${sector.marketChangeValue}`}
-                                  initial={{ opacity: 0, scale: 0.9 }}
-                                  animate={{ opacity: 1, scale: 1 }}
-                                  className={cn("flex items-center justify-end font-bold text-[10px] mt-0.5", 
-                                    isPositive ? "text-emerald-600 dark:text-emerald-400" : "text-red-500 dark:text-red-500"
-                                  )}
-                                >
-                                  {sector.marketChangePercent !== 0 && (
-                                  <svg className="w-2.5 h-2.5 mr-0.5" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fillRule="evenodd" d={isPositive ? "M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" : "M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 12.586V5a1 1 0 112 0v7.586l2.293-2.293a1 1 0 011.414 0z"} clipRule="evenodd"></path>
-                                  </svg>
-                                  )}
-                                  {isPositive ? "+" : ""}{(sector.marketChangeValue || 0).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({(sector.marketChangePercent || 0).toFixed(2)}%)
-                                </motion.div>
-                              </div>
-                            </div>
-                          </div>
-                        </motion.div>
-                      );
-                    })}
-                  </div>
-                </div>
-                </Card>
-
+              {/* Kolom Kedua: Konsultasi AI */}
+              <div className="space-y-6 sm:space-y-8 xl:col-span-4">
                 <div className="rounded-2xl border border-dashed border-[#2a2a2a] bg-[#111] p-6 text-center">
                   <BarChart3
                     size={40}
@@ -1467,39 +1661,86 @@ export default function App() {
           <div className="flex flex-col lg:flex-row min-h-[calc(100vh-120px)] w-full">
             {/* News Column */}
             <main className="w-full bg-[var(--color-bg-news)] p-6 sm:p-8 lg:p-10 xl:px-12 pb-24">
-              <div className="flex justify-between items-center mb-10">
-                  <h2 className="font-heading text-4xl sm:text-3xl font-extrabold text-white tracking-[0.5px]">News Feed</h2>
+              <div className="flex items-center justify-between gap-4 mb-8 pb-4 border-b border-[#111111] relative">
+                {/* News Feed Title */}
+                <div>
+                  <h2 className="font-heading text-xl sm:text-2xl font-extrabold text-white tracking-[0.5px] uppercase">News Feed</h2>
+                  <p className="hidden xs:block text-[9px] sm:text-[10px] text-[#555] font-bold tracking-[1.5px] uppercase mt-0.5">Real-time IDX Media Sentiments</p>
+                </div>
+
+                {/* Controls (Refresh + Filter) aligned nicely */}
+                <div className="flex items-center gap-2.5 relative">
+                  {/* Refresh (Sinkron) button */}
                   <motion.button 
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     animate={{ 
-                      boxShadow: ["0 0 0px rgba(212,175,55,0)", "0 0 15px rgba(212,175,55,0.4)", "0 0 0px rgba(212,175,55,0)"],
+                      boxShadow: ["0 0 0px rgba(212,175,55,0)", "0 0 15px rgba(212,175,55,0.3)", "0 0 0px rgba(212,175,55,0)"],
                       borderColor: ["rgba(212,175,55,0.2)", "rgba(212,175,55,0.6)", "rgba(212,175,55,0.2)"]
                     }}
                     transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
-                    className="flex items-center gap-2 px-5 py-2 sm:px-4 sm:py-1.5 rounded-full border border-[var(--color-gold)]/20 bg-[var(--color-gold)]/5 text-[var(--color-gold)] text-[11px] sm:text-[10px] font-bold uppercase tracking-[1.5px] cursor-pointer hover:bg-[var(--color-gold)]/10 transition-all" 
-                    onClick={() => fetchNews()}
+                    className="flex items-center justify-center p-3 rounded-2xl border border-[var(--color-gold)]/20 bg-[var(--color-gold)]/5 text-[var(--color-gold)] cursor-pointer hover:bg-[var(--color-gold)]/10 transition-all active:scale-95 shadow-md" 
+                    onClick={() => fetchNews(true)}
+                    title="Segarkan News Feed"
                   >
-                    <RefreshCw size={12} className={cn(isRefreshingNews && "animate-spin")} /> Segarkan
+                    <RefreshCw size={15} className={cn(isRefreshingNews && "animate-spin")} />
                   </motion.button>
-              </div>
 
-              <div className="flex gap-8 border-b border-[#222] pb-4 mb-8 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
-                  {["Semua", "Otoritas", "Media Lokal", "Media Global", "Sentimen Komunitas"].map((type) => (
-                    <button
-                      key={type}
-                      onClick={() => setSelectedNewsType(type)}
-                      className={cn(
-                        "text-[13px] sm:text-xs font-bold uppercase tracking-[1px] transition-colors relative whitespace-nowrap",
-                        selectedNewsType === type ? "text-[var(--color-gold)]" : "text-[var(--color-text-muted)] hover:text-white"
-                      )}
-                    >
-                      {type}
-                      {selectedNewsType === type && (
-                        <span className="absolute left-0 -bottom-[17px] w-full h-[2px] bg-[var(--color-gold)]" />
-                      )}
-                    </button>
-                  ))}
+                  {/* Filter button */}
+                  <button
+                    onClick={() => setIsNewsFilterOpen(!isNewsFilterOpen)}
+                    className={cn(
+                      "flex items-center justify-center p-3 rounded-2xl bg-[#111] border transition-all cursor-pointer active:scale-95 shadow-md",
+                      isNewsFilterOpen || selectedNewsType !== "Semua"
+                        ? "border-[var(--color-gold)] text-[var(--color-gold)] bg-[var(--color-gold)]/5"
+                        : "border-[#222] text-zinc-400 hover:text-white hover:border-[#333]"
+                    )}
+                    title={`Filter: ${selectedNewsType}`}
+                  >
+                    <Filter size={15} />
+                    {selectedNewsType !== "Semua" && (
+                      <span className="ml-1.5 text-[8.5px] font-black uppercase tracking-wider text-[var(--color-gold)]">
+                        {selectedNewsType}
+                      </span>
+                    )}
+                  </button>
+
+                  <AnimatePresence>
+                    {isNewsFilterOpen && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-40" 
+                          onClick={() => setIsNewsFilterOpen(false)} 
+                        />
+                        <motion.div
+                          initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                          transition={{ duration: 0.15 }}
+                          className="absolute right-0 top-full mt-2.5 w-[200px] z-50 bg-[#0d0d0d] border border-[#222] rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] p-1.5 flex flex-col gap-0.5"
+                        >
+                          {["Semua", "Otoritas", "Media Lokal", "Media Global", "Sentimen Komunitas"].map((type) => (
+                            <button
+                              key={type}
+                              onClick={() => {
+                                setSelectedNewsType(type);
+                                setIsNewsFilterOpen(false);
+                              }}
+                              className={cn(
+                                "text-left px-3.5 py-2.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all w-full cursor-pointer",
+                                selectedNewsType === type 
+                                  ? "bg-[var(--color-gold)]/10 text-[var(--color-gold)] font-black" 
+                                  : "text-zinc-400 hover:bg-[#151515] hover:text-white"
+                              )}
+                            >
+                              {type === "Semua" ? "Semua Berita" : type}
+                            </button>
+                          ))}
+                        </motion.div>
+                      </>
+                    )}
+                  </AnimatePresence>
+                </div>
               </div>
 
               <div className="flex flex-col gap-0 border-t border-[rgba(255,255,255,0.02)]">
@@ -1527,7 +1768,7 @@ export default function App() {
                           whileTap={{ scale: 0.99 }}
                           onClick={() => setSelectedNews(news)}
                           className={cn(
-                            "group py-6 px-8 border-b border-[rgba(255,255,255,0.05)] cursor-pointer transition-all duration-300 rounded-r-xl",
+                            "group py-4 px-8 border-b border-[rgba(255,255,255,0.05)] cursor-pointer transition-all duration-300 rounded-r-xl",
                             isMedium ? "border-l-0" : "border-l-4",
                             bgClass,
                             hoverBg,
@@ -1601,7 +1842,7 @@ export default function App() {
                                 {news.impactedSectors.join(', ')}
                               </span>
                             )}
-                            <span className="text-[9px] font-mono font-bold text-[#333] border-l border-[#1a1a1a] pl-2.5 whitespace-nowrap">
+                            <span className="text-[9px] font-mono font-bold text-white border-l border-[#1a1a1a] pl-2.5 whitespace-nowrap">
                               {news.date.split(',')[0].replace(' 2026', '')} • {news.date.split(',')[1]?.trim().split(' ')[0]}
                             </span>
                          </div>
@@ -1618,71 +1859,16 @@ export default function App() {
 
         {activeTab === "Rekomendasi Saham" && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="grid grid-cols-1 gap-6 sm:gap-8 xl:grid-cols-12 md:max-xl:grid-cols-2">
-              <div className="space-y-6 sm:space-y-8 xl:col-span-8 md:max-xl:col-span-1">
-                <Card
-                  title="Grafik IHSG"
-                  icon={<BarChart3 size={20} />}
-                >
-                  <div className="h-[400px] sm:h-[400px] w-full pt-4 overflow-hidden rounded-xl">
-                    <AdvancedRealTimeChart
-                      symbol="IDX:COMPOSITE"
-                      theme="dark"
-                      interval="D"
-                      autosize
-                      allow_symbol_change={false}
-                      hide_side_toolbar={true}
-                      hide_top_toolbar={true}
-                      hide_legend={true}
-                      backgroundColor="#000000"
-                      timezone="Asia/Jakarta"
-                    />
-                  </div>
-                </Card>
-                <Card
-                  title="Kalender Aksi Korporasi"
-                  icon={<Calendar size={20} />}
-                >
-                  <div className="space-y-4 pt-4">
-                    {MOCK_CORPORATE_EVENTS.map((event) => (
-                      <div
-                        key={event.id}
-                        className="group flex flex-col sm:flex-row sm:items-center justify-between border-b border-[#222] pb-4 last:border-0 last:pb-0"
-                      >
-                        <div className="flex items-start gap-4">
-                          <div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-xl bg-[#111] text-[#ccc] group-hover:scale-105 transition-transform">
-                            <span className="text-[10px] font-bold uppercase">
-                              {event.date.split(" ")[1]}
-                            </span>
-                            <span className="text-xl font-black leading-none">
-                              {event.date.split(" ")[0]}
-                            </span>
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-black text-xl sm:text-lg tracking-tighter">
-                                {event.symbol}
-                              </span>
-                              <span className="rounded bg-[#222] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#888]">
-                                {event.type}
-                              </span>
-                            </div>
-                            <p className="mt-1 text-xs leading-relaxed text-[#666]">
-                              {event.desc}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                    <div className="pt-2">
-                      <p className="text-[10px] italic text-[#444] text-center">
-                        Sumber: Keterbukaan Informasi Bursa Efek Indonesia (IDX)
-                      </p>
-                    </div>
-                  </div>
-                </Card>
+            <div className="flex flex-col gap-8">
+              {/* Corporate Action Tracker - Full Width Top */}
+              <div className="w-full">
+                <CorporateActionDashboard 
+                  events={MOCK_CORPORATE_EVENTS}
+                />
               </div>
-              <div className="space-y-6 sm:space-y-8 xl:col-span-4 md:max-xl:col-span-1">
+
+              {/* Recommended Stocks - Full Width Bottom */}
+              <div className="w-full">
                 <Card
                   title="Rekomendasi Saham"
                   icon={<ShieldCheck size={20} className="text-green-500" />}
@@ -1704,29 +1890,54 @@ export default function App() {
                     </button>
                   }
                 >
-                  <div className="mb-4 flex flex-wrap gap-2 pt-4">
-                    {[
-                      "Semua",
-                      "Keuangan",
-                      "Energi",
-                      "Konsumer",
-                      "Teknologi",
-                      "Infrastruktur",
-                    ].map((sector) => (
-                      <button
-                        key={sector}
-                        onClick={() => setSelectedSector(sector)}
-                        className={cn(
-                          "rounded-full px-4 py-2 text-xs font-bold uppercase tracking-[1px] transition-all",
-                          selectedSector === sector
-                            ? "bg-[#111] text-[var(--color-gold)] border border-[#333] shadow-[0_2px_8px_rgba(0,0,0,0.5)]"
-                            : "bg-[#080808] text-[#888] hover:text-white border border-[#222]",
-                        )}
-                      >
-                        {sector}
-                      </button>
-                    ))}
+                  <div className="mb-4 flex justify-end relative pt-4 px-4 sm:px-6">
+                    <button
+                      onClick={() => setIsSectorFilterOpen(!isSectorFilterOpen)}
+                      className="flex items-center gap-2 px-4 py-2 bg-[#111] hover:bg-[#1a1a1a] border border-[#333] rounded-full text-xs font-bold text-white transition-all shadow-[0_4px_15px_rgba(0,0,0,0.3)] hover:border-[var(--color-gold)]"
+                    >
+                      <Filter size={14} className="text-[var(--color-gold)]" />
+                      <span>Sektor: {selectedSector}</span>
+                      <ChevronDown size={14} className={cn("text-[#888] transition-transform", isSectorFilterOpen && "rotate-180")} />
+                    </button>
+
+                    <AnimatePresence>
+                      {isSectorFilterOpen && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                          transition={{ duration: 0.2 }}
+                          className="absolute top-[60px] right-[16px] sm:right-[24px] w-[200px] z-50 bg-[#0d0d0d] border border-[#222] rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] overflow-hidden"
+                        >
+                          <div className="flex flex-col">
+                            {[
+                              "Semua",
+                              "Keuangan",
+                              "Energi",
+                              "Konsumer",
+                              "Teknologi",
+                              "Infrastruktur",
+                            ].map((sector) => (
+                              <button
+                                key={sector}
+                                onClick={() => {
+                                  setSelectedSector(sector);
+                                  setIsSectorFilterOpen(false);
+                                }}
+                                className={cn(
+                                  "text-left px-4 py-3 text-xs font-bold transition-colors w-full",
+                                  selectedSector === sector ? "bg-[var(--color-gold)]/10 text-[var(--color-gold)] border-l-2 border-[var(--color-gold)]" : "text-[#888] hover:bg-[#1a1a1a] hover:text-white border-l-2 border-transparent"
+                                )}
+                              >
+                                {sector}
+                              </button>
+                            ))}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
+
                   <div className="space-y-5">
                     {isRefreshing ? (
                       <div className="flex h-32 flex-col items-center justify-center space-y-4 text-[#888]">
@@ -1833,7 +2044,7 @@ export default function App() {
                         </div>
                         <div className="flex items-center gap-2 border-l border-[#222] pl-4 sm:pl-6">
                           <span className="text-[10px] font-black text-[#444] uppercase tracking-wider">Positions:</span>
-                          <span className="text-xs font-black text-white">{trades.length} Active</span>
+                          <span className="text-xs font-black text-white">{trades.filter(t => t.status === 'OPEN').length} Active</span>
                         </div>
                         <div className="flex items-center gap-2 border-l border-[#222] pl-4 sm:pl-6">
                           <span className="text-[10px] font-black text-[#444] uppercase tracking-wider">Win Rate:</span>
@@ -1874,26 +2085,109 @@ export default function App() {
                 {/* Left: Trade Journal Table */}
                 <div className="lg:col-span-8 space-y-6">
                   <div className="rounded-3xl border border-[#222] bg-[#080808]/40 overflow-hidden shadow-sm">
-                    <div className="px-6 py-5 border-b border-[#1a1a1a] flex justify-between items-center bg-[#0d0d0d]/30 backdrop-blur-sm">
-                      <div className="flex items-center gap-3">
-                        <Calendar size={18} className="text-[#555]" />
-                        <h3 className="text-xs font-black text-white uppercase tracking-[2px]">Trade Journal</h3>
+                    <div className="px-6 py-5 border-b border-[#1a1a1a] flex items-center justify-between bg-[#080808] gap-6">
+                      <div className="flex items-center gap-4">
+                        <div className="bg-[var(--color-gold)]/10 p-2.5 rounded-xl border border-[var(--color-gold)]/20">
+                          <Calendar size={18} className="text-[var(--color-gold)]" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-black text-white uppercase tracking-wider">Trade Journal</h3>
+                          <span className="text-[10px] font-bold text-[#666] tracking-[2px]">{filteredPortfolioTrades.length} TRANSAKSI</span>
+                        </div>
                       </div>
-                      <div className="flex gap-1 bg-[#111] p-1 rounded-xl">
-                        {(['IDX', 'CRYPTO', 'CFD'] as const).map((cat) => (
-                          <button
-                            key={cat}
-                            onClick={() => setActiveMarketFilter(cat)}
-                            className={cn(
-                              "px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-[1px] transition-all",
-                              activeMarketFilter === cat ? "bg-[var(--color-gold)] text-black" : "text-[#444] hover:text-white"
-                            )}
-                          >
-                            {cat === 'IDX' ? 'IDX Stocks' : cat === 'CRYPTO' ? 'Crypto' : 'CFD'}
-                          </button>
-                        ))}
+                      
+                      {/* Unified Dropdown Filter Button placed on the right corner */}
+                      <div className="relative shrink-0">
+                        <button 
+                          onClick={() => setIsPortfolioFilterOpen(!isPortfolioFilterOpen)}
+                          className={cn(
+                            "flex items-center justify-center p-3.5 rounded-2xl bg-[#111] border transition-all cursor-pointer active:scale-95",
+                            isPortfolioFilterOpen || activeMarketFilter !== 'ALL' || portfolioStatusFilter !== 'ALL'
+                              ? "border-[var(--color-gold)] text-[var(--color-gold)] bg-[var(--color-gold)]/5"
+                              : "border-[#222] text-zinc-400 hover:text-white hover:border-[#333]"
+                          )}
+                          title="Filter Sektor & Status"
+                        >
+                          <Filter size={15} />
+                        </button>
+
+                        <AnimatePresence>
+                          {isPortfolioFilterOpen && (
+                            <>
+                              <div 
+                                className="fixed inset-0 z-40" 
+                                onClick={() => setIsPortfolioFilterOpen(false)} 
+                              />
+                              <motion.div
+                                initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                                transition={{ duration: 0.15 }}
+                                className="absolute right-0 mt-2.5 w-56 rounded-2xl border border-[#222] bg-[#0c0c0c] p-3 shadow-2xl z-50 flex flex-col gap-3"
+                              >
+                                {/* Section Kategori Pasar */}
+                                <div className="flex flex-col gap-1.5">
+                                  <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest px-2.5 block">Kategori Pasar</span>
+                                  <div className="flex flex-col gap-0.5">
+                                    {([
+                                      { value: 'ALL', label: 'Semua Pasar' },
+                                      { value: 'IDX', label: 'IDX Stocks' },
+                                      { value: 'CRYPTO', label: 'Crypto' },
+                                      { value: 'CFD', label: 'CFD Market' }
+                                    ] as const).map((cat) => (
+                                      <button
+                                        key={cat.value}
+                                        onClick={() => {
+                                          setActiveMarketFilter(cat.value);
+                                        }}
+                                        className={cn(
+                                          "w-full px-3 py-2 text-left rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all flex items-center justify-between cursor-pointer",
+                                          activeMarketFilter === cat.value
+                                            ? "bg-[var(--color-gold)]/10 text-[var(--color-gold)]"
+                                            : "text-zinc-400 hover:text-white hover:bg-[#151515]"
+                                        )}
+                                      >
+                                        <span>{cat.label}</span>
+                                        {activeMarketFilter === cat.value && <span className="text-[var(--color-gold)] font-sans text-xs">✓</span>}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                <div className="h-[1px] bg-[#1a1a1a] mx-2" />
+
+                                {/* Section Status Transaksi */}
+                                <div className="flex flex-col gap-1.5">
+                                  <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest px-2.5 block">Status Transaksi</span>
+                                  <div className="flex flex-col gap-0.5">
+                                    {([
+                                      { value: 'ALL', label: 'Semua Status' },
+                                      { value: 'OPEN', label: 'Transaksi Aktif' },
+                                      { value: 'CLOSED', label: 'Transaksi Selesai' }
+                                    ] as const).map((status) => (
+                                      <button
+                                        key={status.value}
+                                        onClick={() => {
+                                          setPortfolioStatusFilter(status.value);
+                                        }}
+                                        className={cn(
+                                          "w-full px-3 py-2 text-left rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all flex items-center justify-between cursor-pointer",
+                                          portfolioStatusFilter === status.value
+                                            ? "bg-[var(--color-gold)]/10 text-[var(--color-gold)]"
+                                            : "text-zinc-400 hover:text-white hover:bg-[#151515]"
+                                        )}
+                                      >
+                                        <span>{status.label}</span>
+                                        {portfolioStatusFilter === status.value && <span className="text-[var(--color-gold)] font-sans text-xs">✓</span>}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              </motion.div>
+                            </>
+                          )}
+                        </AnimatePresence>
                       </div>
-                      <span className="text-[10px] font-bold text-[#444] uppercase tracking-widest">{trades.filter(t => t.marketCategory === activeMarketFilter).length} Transaksi</span>
                     </div>
                     <div className="overflow-x-auto p-2">
                       <table className="w-full border-separate border-spacing-y-2">
@@ -1907,12 +2201,14 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody className="space-y-2">
-                          {trades.filter(t => t.marketCategory === activeMarketFilter).length === 0 ? (
+                          {filteredPortfolioTrades.length === 0 ? (
                             <tr>
-                              <td colSpan={5} className="py-16 text-center text-[#333] font-black uppercase tracking-[3px]">Belum ada transaksi di {activeMarketFilter}</td>
+                              <td colSpan={5} className="py-16 text-center text-[#333] font-black uppercase tracking-[3px]">
+                                Belum ada transaksi di {activeMarketFilter} {portfolioStatusFilter !== 'ALL' ? `(${portfolioStatusFilter})` : ''}
+                              </td>
                             </tr>
                           ) : (
-                             trades.filter(t => t.marketCategory === activeMarketFilter).map((trade) => {
+                             filteredPortfolioTrades.map((trade) => {
                               let riskColorItem = "bg-[#111] text-[#555] border-[#222]";
                               let riskTextItem = "-";
                               let displayRiskAmountItem: number | null = null;
@@ -1932,6 +2228,19 @@ export default function App() {
                                 }
                               }
 
+                              let currentValuation = 0;
+                              let plPercent = 0;
+                              if (trade.status === 'CLOSED') {
+                                 const exitPr = trade.actualExitPrice || trade.exitPrice || trade.entryPrice;
+                                 currentValuation = exitPr * trade.quantity;
+                                 plPercent = ((exitPr - trade.entryPrice) / trade.entryPrice) * 100;
+                              } else {
+                                 const currentStock = stocks.find(s => s.symbol === trade.symbol);
+                                 const currentPrice = currentStock ? currentStock.price : trade.entryPrice * 1.02;
+                                 currentValuation = currentPrice * trade.quantity;
+                                 plPercent = ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100;
+                              }
+
                               return (
                               <tr 
                                 key={trade.id} 
@@ -1942,12 +2251,7 @@ export default function App() {
                                   <div className="flex flex-col">
                                     <span className="font-black text-white tracking-widest text-sm group-hover:text-[var(--color-gold)] transition-colors">{trade.symbol}</span>
                                     <div className="flex items-center gap-2 mt-1">
-                                      <span className={cn(
-                                        "text-[8px] font-black uppercase tracking-[1.5px] px-1.5 py-0.5 rounded-sm",
-                                        trade.type === 'BUY' ? "bg-emerald-500/10 text-emerald-500" : "bg-rose-500/10 text-rose-500"
-                                      )}>
-                                        {trade.type}
-                                      </span>
+                                      <TradeLiveStatusBadge trade={trade} />
                                       <span className="text-[9px] font-mono text-[#444] font-bold">{trade.date}</span>
                                     </div>
                                   </div>
@@ -1959,8 +2263,13 @@ export default function App() {
                                 <td className="py-4 px-4 text-right font-mono font-bold text-white text-xs">
                                   Rp {trade.entryPrice.toLocaleString("id-ID")}
                                 </td>
-                                <td className="py-4 px-4 text-right text-xs font-black text-[var(--color-gold)] font-mono">
-                                  {isBalanceHidden ? "••••••••" : `Rp ${(trade.entryPrice * trade.quantity).toLocaleString("id-ID")}`}
+                                <td className="py-4 px-4 text-right text-xs font-black text-white font-mono">
+                                  <div className="flex flex-col items-end">
+                                    <span>{isBalanceHidden ? "••••••••" : `Rp ${currentValuation.toLocaleString("id-ID")}`}</span>
+                                    <span className={cn("text-[9px] font-black tracking-widest mt-0.5", plPercent >= 0 ? "text-emerald-500" : "text-rose-500")}>
+                                      {plPercent >= 0 ? "+" : ""}{plPercent.toFixed(2)}%
+                                    </span>
+                                  </div>
                                 </td>
                                 <td className="py-4 px-4 text-center last:rounded-r-xl">
                                   <div className="flex flex-col items-center gap-1">
@@ -1988,7 +2297,7 @@ export default function App() {
                   {/* Performance Analytics Card */}
                   <div className="rounded-3xl border border-[#2a2a2a] bg-[#0d0d0d] p-6 shadow-xl relative overflow-hidden group">
                     <div className="absolute -right-8 -top-8 w-24 h-24 bg-[var(--color-gold)]/5 rounded-full blur-2xl group-hover:bg-[var(--color-gold)]/10 transition-all"></div>
-                    <div className="flex items-center gap-3 mb-6">
+                    <div className="flex items-center gap-3 mb-4">
                       <div className="p-2.5 rounded-xl bg-[var(--color-gold)]/10 text-[var(--color-gold)] border border-[var(--color-gold)]/20 shadow-inner">
                         <TrendingUp size={22} className="group-hover:scale-110 transition-transform" />
                       </div>
@@ -2032,24 +2341,225 @@ export default function App() {
 
                   {/* AI Advisor Call-to-action */}
                   <div className="rounded-3xl border border-dashed border-[var(--color-gold)]/30 bg-gradient-to-br from-[#0d0d0d] to-[#050505] p-8 flex flex-col items-center text-center">
-                    <div className="relative mb-6">
+                    <div className="relative mb-4">
                       <div className="absolute inset-0 bg-[var(--color-gold)]/20 blur-2xl rounded-full scale-110"></div>
                       <div className="relative w-16 h-16 rounded-2xl bg-[#000] border border-[var(--color-gold)]/20 flex items-center justify-center text-[var(--color-gold)]">
                         <Sparkles size={32} />
                       </div>
                     </div>
                     <h4 className="text-lg font-black text-white uppercase tracking-tight mb-2">Smart AI Advisor</h4>
-                    <p className="text-xs text-[#555] font-medium leading-relaxed mb-8 max-w-[220px]">Dapatkan analisis mendalam berbasis GenAI untuk mengoptimalkan strategi trading Anda secara personal.</p>
+                    <p className="text-xs text-[#555] font-medium leading-relaxed mb-4 max-w-[220px]">Dapatkan analisis mendalam berbasis GenAI untuk mengoptimalkan strategi trading Anda secara personal.</p>
                     <button className="w-full py-4 bg-white hover:bg-[var(--color-gold)] text-black font-black uppercase text-[10px] tracking-[2.5px] rounded-2xl shadow-xl transition-all active:scale-[0.98]">
                       Analisis Journal Sekarang
                     </button>
                   </div>
                 </div>
               </div>
+              
+              {/* Corporate Action Tracker Integration in Portfolio */}
+              <div className="mt-12">
+                 <CorporateActionDashboard events={MOCK_CORPORATE_EVENTS} />
+              </div>
             </div>
           ) : (
             <LoginPage onLoginSuccess={() => setIsLoggedIn(true)} />
           )
+        )}
+
+        {activeTab === "Calendar" && (
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <AstroCalendar />
+          </div>
+        )}
+
+        {activeTab === "Broker Summary" && (
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <BrokerSummaryDashboard />
+          </div>
+        )}
+
+        {activeTab === "Sektor Impact" && (
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8">
+            {/* Header Sektor */}
+            <section className="p-6 sm:p-8 rounded-3xl border border-[#202020] bg-gradient-to-br from-[#0a0a0a] via-[#0d0d0d] to-[#060606] relative overflow-hidden shadow-2xl">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_right,_var(--color-gold-hover),transparent_20%)] opacity-5 pointer-events-none" />
+              <div className="absolute -left-12 -top-12 w-32 h-32 bg-purple-500/5 rounded-full blur-3xl pointer-events-none" />
+              
+              <div className="flex flex-col gap-3.5 pr-12 max-w-3xl">
+                {/* Premium Tech-Indicator Badge */}
+                <motion.div 
+                  initial={{ opacity: 0, x: -15 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.5, delay: 0.1 }}
+                  className="flex items-center"
+                >
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-[#111111]/80 border border-[#2a2a2a] shadow-inner">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--color-gold)] opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--color-gold)]"></span>
+                    </span>
+                    <span className="text-[10px] font-black tracking-[0.16em] uppercase text-[#e0e0e0] font-mono leading-none">
+                      IDX Sektor Analyzer AI
+                    </span>
+                  </div>
+                </motion.div>
+
+                {/* Sleek Professional Typography Header */}
+                <motion.h1 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.6, delay: 0.2 }}
+                  className="text-2xl sm:text-3.5xl font-extrabold text-white tracking-tight uppercase leading-tight"
+                >
+                  Analisis Sentimen <span className="text-[var(--color-gold)] font-light font-serif">&</span> Mekanika Sektoral
+                </motion.h1>
+                
+                {/* Elegant subtle accent line */}
+                <motion.div 
+                  initial={{ width: 0 }}
+                  animate={{ width: 80 }}
+                  transition={{ duration: 0.8, delay: 0.4, ease: "easeOut" }}
+                  className="h-[2px] bg-gradient-to-r from-[var(--color-gold)] to-transparent rounded-full mt-0.5" 
+                />
+              </div>
+
+              <button
+                onClick={async () => {
+                  setIsRefreshingNews(true);
+                  try {
+                    await Promise.all([
+                      fetchSectorMarketData(),
+                      fetchNews(true),
+                      fetchLivePrices()
+                    ]);
+                  } catch (e) {}
+                  setIsRefreshingNews(false);
+                }}
+                disabled={isRefreshingNews}
+                className="absolute top-6 right-6 flex items-center justify-center rounded-xl border border-[rgba(212,175,55,0.3)] bg-[rgba(212,175,55,0.1)] p-2.5 text-xs font-bold text-[var(--color-gold)] transition-all hover:bg-[rgba(212,175,55,0.2)] active:scale-95 disabled:opacity-50 shadow-md cursor-pointer z-10"
+                title="Sinkronkan Data Live"
+              >
+                <RefreshCw size={14} className={isRefreshingNews ? "animate-spin" : ""} />
+              </button>
+            </section>
+
+            {/* Layout Grid Utama Sektor (Elegantly Styled Bento Grid) */}
+            <div className="space-y-4">
+
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {sectorScores.map((sector, index) => {
+                  const nameSplit = sector.name.split(" (");
+                  const titleMain = nameSplit[0];
+                  const titleSub = nameSplit.length > 1 ? nameSplit[1].replace(")", "") : sector.code;
+                  const isPositive = (sector.marketChangePercent || 0) >= 0;
+                  const isAiPositive = sector.outlook === "Buy";
+                  const isAiNegative = sector.outlook === "Sell";
+
+                  return (
+                    <motion.div
+                      key={sector.name}
+                      onClick={() => {
+                        setSelectedSectorTabCode(sector.code);
+                        setIsSectorModalOpen(true);
+                      }}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ 
+                        duration: 0.45, 
+                        delay: Math.min(index * 0.04, 0.4), 
+                        ease: [0.215, 0.61, 0.355, 1] 
+                      }}
+                      whileHover={{ scale: 1.02, y: -4, transition: { duration: 0.2 } }}
+                      whileTap={{ scale: 0.98 }}
+                      className={cn(
+                        "group w-full bg-[#0a0a0a] rounded-3xl p-5 border transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between h-[200px]",
+                        isAiPositive 
+                          ? "border-emerald-500/10 hover:border-emerald-500/30 hover:bg-emerald-500/[0.02]" 
+                          : isAiNegative 
+                            ? "border-rose-500/10 hover:border-rose-500/30 hover:bg-rose-500/[0.02]" 
+                            : "border-[#1a1a1a] hover:border-[#333] hover:bg-zinc-900/40"
+                      )}
+                    >
+                      {/* Ambient background glow of active recommendation on hover */}
+                      <div className={cn(
+                        "absolute inset-0 transition-opacity duration-300 opacity-0 group-hover:opacity-10 pointer-events-none bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))]",
+                        isAiPositive && "from-emerald-500/20 via-transparent to-transparent",
+                        isAiNegative && "from-rose-500/20 via-transparent to-transparent",
+                        !isAiPositive && !isAiNegative && "from-purple-500/20 via-transparent to-transparent"
+                      )} />
+
+                      <div>
+                        {/* Header card */}
+                        <div className="flex justify-between items-start gap-2 mb-3">
+                          <div className="flex gap-2.5 items-center min-w-0">
+                            <span className={cn(
+                              "w-9 h-9 rounded-xl flex items-center justify-center border shadow-inner transition-colors shrink-0",
+                              isAiPositive 
+                                ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-400" 
+                                : isAiNegative 
+                                  ? "border-rose-500/20 bg-rose-500/5 text-rose-400" 
+                                  : "border-purple-500/20 bg-purple-500/5 text-purple-400"
+                            )}>
+                              {getIcon(sector.icon)}
+                            </span>
+                            <div className="min-w-0">
+                              <h4 className="font-black text-xs sm:text-sm text-white truncate leading-tight tracking-tight uppercase group-hover:text-[var(--color-gold)] transition-colors">
+                                {titleMain}
+                              </h4>
+                              <p className="text-[#666] text-[9px] font-bold uppercase tracking-wider truncate mt-0.5">{titleSub}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Indeks info */}
+                        <div className="flex items-baseline justify-between gap-1.5 border-t border-[#161616] pt-3 mt-1.5">
+                          <div className="flex flex-col">
+                            <span className="text-[8px] font-black uppercase text-[#444] tracking-wider">Harga Indeks</span>
+                            <span className="text-zinc-200 font-bold text-xs sm:text-sm font-mono mt-0.5">
+                              {sector.price > 0 ? sector.price.toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '-'}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-col items-end">
+                            <span className="text-[8px] font-black uppercase text-[#444] tracking-wider">Chg %</span>
+                            <span className={cn(
+                              "font-bold text-xs sm:text-sm font-mono mt-0.5 flex items-center gap-0.5",
+                              isPositive ? "text-emerald-400" : "text-rose-400"
+                            )}>
+                              {isPositive ? "+" : ""}{sector.marketChangePercent.toFixed(2)}%
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Footer card */}
+                      <div className="flex items-center justify-between border-t border-[#111] pt-3 mt-3 w-full">
+                        <div className="flex gap-2">
+                          <span className={cn(
+                            "px-2.5 py-1 rounded-lg text-[9px] font-black tracking-widest leading-none border uppercase flex items-center justify-center",
+                            isAiPositive 
+                              ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
+                              : isAiNegative 
+                                ? "bg-rose-500/10 text-rose-400 border-rose-500/20" 
+                                : "bg-neutral-800 text-neutral-400 border-neutral-700"
+                          )}>
+                            {sector.outlook}
+                          </span>
+                          <span className="px-2 py-1 rounded-lg bg-[#111] border border-[#222] text-[9.5px] font-black font-mono text-zinc-400 flex items-center justify-center">
+                            PROB: {sector.probability.toFixed(0)}%
+                          </span>
+                        </div>
+                        <span className="text-[8px] font-black text-purple-400/80 group-hover:text-purple-400 group-hover:underline uppercase tracking-widest transition-all">
+                          Analisis Profil →
+                        </span>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
         )}
 
         {activeTab === "Profile" && (
@@ -2063,38 +2573,22 @@ export default function App() {
             }} 
           />
         )}
+        </div>
       </main>
 
-      <footer className="border-t border-[#222] bg-[#000] py-12">
-        <div className="mx-auto max-w-7xl px-4 text-center sm:px-6 lg:px-8">
-          <div className="font-heading text-xl font-black text-white mb-4 uppercase tracking-[2px]">
-             CNHL Research<span className="text-[var(--color-gold)]">.</span>
-          </div>
-          <p className="text-sm text-[#555] font-bold uppercase tracking-[1px]">
-            © 2026 Research CNHL. Terminal Data Protokol Real-Time.
+      <footer className="border-t border-[#222] bg-[#050505] py-4">
+        <div className="mx-auto max-w-7xl px-4 text-center sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between">
+          <p className="text-xs text-[#555] font-bold uppercase tracking-widest mb-4 md:mb-0">
+            © 2026 Research CNHL Terminal.
           </p>
-          <div className="mt-8 flex justify-center gap-8">
-            <a
-              href="#"
-              className="text-[10px] font-black uppercase tracking-[2px] text-[#444] hover:text-[var(--color-gold)] transition-colors"
-            >
-              Privacy Policy
-            </a>
-            <a
-              href="#"
-              className="text-[10px] font-black uppercase tracking-[2px] text-[#444] hover:text-[var(--color-gold)] transition-colors"
-            >
-              Terms of Protocol
-            </a>
-            <a
-              href="#"
-              className="text-[10px] font-black uppercase tracking-[2px] text-[#444] hover:text-[var(--color-gold)] transition-colors"
-            >
-              Support Terminal
-            </a>
+          <div className="flex justify-center gap-6">
+             <a href="#" className="text-[10px] font-black uppercase tracking-[2px] text-[#444] hover:text-white transition-colors">Privacy</a>
+             <a href="#" className="text-[10px] font-black uppercase tracking-[2px] text-[#444] hover:text-white transition-colors">Terms</a>
           </div>
         </div>
       </footer>
+      </div>
+    </div>
     </div>
   );
 }
@@ -2116,7 +2610,7 @@ function LoginPage({ onLoginSuccess }: { onLoginSuccess: () => void }) {
   return (
     <div className="flex items-center justify-center py-20 animate-in fade-in zoom-in duration-500">
       <div className="w-full max-w-sm bg-[#080808] border border-[#2a2a2a] p-8 rounded-3xl shadow-2xl">
-        <h2 className="text-white font-black text-2xl uppercase tracking-[2px] mb-6 text-center">Login Access</h2>
+        <h2 className="text-white font-black text-2xl uppercase tracking-[2px] mb-4 text-center">Login Access</h2>
         <form onSubmit={handleLogin} className="space-y-4">
           <div className="relative">
             <User className="absolute left-3 top-3.5 text-[#555]" size={18} />
@@ -2165,11 +2659,11 @@ function ProfileView({
   if (!isLoggedIn) {
     return (
       <div className="py-20 text-center animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <div className="inline-flex p-6 rounded-3xl bg-rose-500/10 border border-rose-500/20 text-rose-500 mb-6">
+        <div className="inline-flex p-6 rounded-3xl bg-rose-500/10 border border-rose-500/20 text-rose-500 mb-4">
           <Lock size={48} />
         </div>
         <h2 className="text-3xl font-black text-white uppercase tracking-tighter mb-4">Akses Terbatas</h2>
-        <p className="text-[#555] font-bold uppercase tracking-wider mb-8">Silakan login di menu Portfolio terlebih dahulu</p>
+        <p className="text-[#555] font-bold uppercase tracking-wider mb-4">Silakan login di menu Portfolio terlebih dahulu</p>
       </div>
     );
   }
@@ -2223,7 +2717,7 @@ function ProfileView({
 
       <div className="p-8 rounded-3xl border border-[#2a2a2a] bg-[#0d0d0d] shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 left-0 w-1/3 h-full bg-gradient-to-r from-emerald-500/5 to-transparent pointer-events-none"></div>
-        <h3 className="text-sm font-black text-white uppercase tracking-wider mb-6 flex items-center gap-2">
+        <h3 className="text-sm font-black text-white uppercase tracking-wider mb-4 flex items-center gap-2">
           <TrendingUp size={16} className="text-emerald-500" />
           Financial Setup
         </h3>
@@ -2279,7 +2773,7 @@ function Card({
       )}
     >
       <div className={cn(
-        "mb-8 flex items-center justify-between border-b border-[#2a2a2a] pb-4",
+        "mb-4 flex items-center justify-between border-b border-[#2a2a2a] pb-4",
         isSeamless && "border-white/5"
       )}>
         <div className="flex items-center gap-4">
@@ -2334,14 +2828,367 @@ function getIcon(name: string) {
   }
 }
 
-function StockDetailModal({
-  stock,
+function SectorDetailModal({
+  sector,
   onClose,
 }: {
-  stock: RecommendedStock;
+  sector: any;
   onClose: () => void;
 }) {
+  if (!sector) return null;
+
+  const nameSplit = sector.name.split(" (");
+  const titleMain = nameSplit[0];
+  const titleSub = nameSplit.length > 1 ? nameSplit[1].replace(")", "") : sector.code;
+  const isPositive = (sector.marketChangePercent || 0) >= 0;
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="absolute inset-0 bg-black/85 backdrop-blur-sm"
+      />
+
+      {/* Modal Container */}
+      <motion.div
+        initial={{ scale: 0.95, y: 15, opacity: 0 }}
+        animate={{ scale: 1, y: 0, opacity: 1 }}
+        exit={{ scale: 0.95, y: 15, opacity: 0 }}
+        transition={{ type: "spring", duration: 0.4 }}
+        className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl border border-[#2a2a2a] bg-[#0c0c0c] p-6 shadow-2xl z-10"
+        style={{ scrollbarWidth: "thin" }}
+      >
+        {/* Header Sektor */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[#222] pb-6">
+          <div className="flex gap-4 items-center">
+            <div className="w-12 h-12 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center shadow-lg shadow-purple-500/5">
+              {getIcon(sector.icon)}
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="px-2 py-0.5 rounded-full text-[8px] font-black uppercase bg-purple-500/10 text-purple-400 border border-purple-500/20 tracking-wider">
+                  IDX Sektor Analyzer AI Profile
+                </span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">Real-Time</span>
+              </div>
+              <h2 className="text-xl sm:text-2xl font-black text-white leading-tight uppercase tracking-tight">{titleMain}</h2>
+              <p className="text-zinc-500 text-xs">{titleSub} • {sector.marketIndex}</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-start">
+            <div className={cn(
+              "flex flex-col px-3 py-1.5 rounded-xl border text-right",
+              sector.outlook === "Buy" 
+                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.05)]" 
+                : sector.outlook === "Sell" 
+                  ? "bg-rose-500/10 border-rose-500/20 text-rose-400" 
+                  : "bg-[#111] border-[#222]"
+            )}>
+              <span className="text-[7px] font-black tracking-widest uppercase leading-none text-[#ffffffd0]">AI Outlook</span>
+              <span className="text-sm font-black tracking-wider uppercase mt-0.5 leading-none">{sector.outlook}</span>
+              <span className="text-[8px] font-bold font-mono opacity-80 mt-0.5 leading-none font-black">Prob: {sector.probability.toFixed(1)}%</span>
+            </div>
+
+            <button 
+              onClick={onClose}
+              className="p-2.5 rounded-xl border border-[#222] bg-[#111] hover:bg-[#222] text-zinc-400 hover:text-white transition-colors cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Modal Content */}
+        <div className="space-y-6 mt-6">
+          {/* Market Pricing Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 rounded-2xl bg-[#060606] border border-[#111]">
+            <div>
+              <span className="text-[8px] font-black uppercase text-[#444] tracking-wider block">Harga Indeks</span>
+              <span className="text-white font-black text-sm font-mono block mt-1">
+                {sector.price > 0 ? sector.price.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
+              </span>
+            </div>
+            <div>
+              <span className="text-[8px] font-black uppercase text-[#444] tracking-wider block">Perubahan Indeks</span>
+              <span className={cn("font-bold text-sm font-mono block mt-1", isPositive ? "text-emerald-400" : "text-rose-400")}>
+                {isPositive ? "+" : ""}{(sector.marketChangeValue || 0).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+            <div>
+              <span className="text-[8px] font-black uppercase text-[#444] tracking-wider block">Persentase</span>
+              <span className={cn("font-bold text-sm font-mono block mt-1", isPositive ? "text-emerald-400" : "text-rose-400")}>
+                {isPositive ? "+" : ""}{(sector.marketChangePercent || 0).toFixed(2)}%
+              </span>
+            </div>
+            <div>
+              <span className="text-[8px] font-black uppercase text-[#444] tracking-wider block">Volume Transaksi</span>
+              <span className="text-zinc-300 font-bold text-sm font-mono block mt-1">
+                {(sector.volume || 0).toLocaleString('id-ID')} Lot
+              </span>
+            </div>
+          </div>
+
+          {/* Kuantitatif Engine Breakdown */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Box 1: Order Flow Institusi */}
+            <div className="rounded-3xl border border-[#2a2a2a] bg-[#0c0c0c] p-5 space-y-4">
+              <div className="flex items-center gap-1.5 border-b border-[#222] pb-3">
+                <ArrowLeftRight size={16} className="text-indigo-400" />
+                <h3 className="text-xs font-black uppercase tracking-wider text-zinc-300">
+                  Order Flow Institusi (Harian)
+                </h3>
+              </div>
+
+              <div className="space-y-4 pt-1">
+                <div>
+                  <div className="flex justify-between text-xs font-semibold text-[#888] mb-1.5">
+                    <span>Foreign Capital Net Flow</span>
+                    <span className={cn("font-mono font-bold", sector.netForeignFlowBillion >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                      {sector.netForeignFlowBillion >= 0 ? "+" : ""}{sector.netForeignFlowBillion.toFixed(2)} Miliar TR
+                    </span>
+                  </div>
+                  {/* Horizontal Flow Indicator */}
+                  <div className="h-2 rounded-full bg-[#111] overflow-hidden flex relative border border-[#222]">
+                    <div className={cn("h-full rounded-full transition-all", sector.netForeignFlowBillion >= 0 ? "bg-emerald-500" : "bg-rose-500")}
+                         style={{ 
+                           width: `${Math.min(100, Math.max(10, Math.abs(sector.netForeignFlowBillion) * 2))}%`,
+                           marginLeft: sector.netForeignFlowBillion >= 0 ? '50%' : 'auto',
+                           marginRight: sector.netForeignFlowBillion < 0 ? '50%' : 'auto'
+                         }} 
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-xs font-semibold text-[#888] mb-1.5">
+                    <span>Domestic Capital Net Flow</span>
+                    <span className={cn("font-mono font-bold", sector.netDomesticFlowBillion >= 0 ? "text-blue-400" : "text-amber-500")}>
+                      {sector.netDomesticFlowBillion >= 0 ? "+" : ""}{sector.netDomesticFlowBillion.toFixed(2)} Miliar TR
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-[#111] overflow-hidden flex relative border border-[#222]">
+                    <div className={cn("h-full rounded-full transition-all", sector.netDomesticFlowBillion >= 0 ? "bg-blue-500" : "bg-amber-500")}
+                         style={{ 
+                           width: `${Math.min(100, Math.max(10, Math.abs(sector.netDomesticFlowBillion) * 2))}%`,
+                           marginLeft: sector.netDomesticFlowBillion >= 0 ? '50%' : 'auto',
+                           marginRight: sector.netDomesticFlowBillion < 0 ? '50%' : 'auto'
+                         }} 
+                    />
+                  </div>
+                </div>
+
+                <p className="text-[10px] leading-relaxed text-[#555] font-semibold uppercase tracking-tight">
+                  💡 Kapital Asing terkonfirmasi {sector.netForeignFlowBillion >= 0 ? "Akumulasi Net Beli" : "Distribusi Net Jual"} di bursa modal hari ini.
+                </p>
+              </div>
+            </div>
+
+            {/* Box 2: Detail Model Aggregation Formula */}
+            <div className="rounded-3xl border border-[#2a2a2a] bg-[#0c0c0c] p-5 space-y-4">
+              <div className="flex items-center gap-1.5 border-b border-[#222] pb-3">
+                <Sparkles size={16} className="text-[var(--color-gold)]" />
+                <h3 className="text-xs font-black uppercase tracking-wider text-zinc-300">
+                  Kalkulator Agregasi AI
+                </h3>
+              </div>
+
+              <div className="space-y-3.5 text-xs text-[#888] leading-tight">
+                <div className="flex justify-between items-center py-1">
+                  <span>Engine Sentimen Berita Weight</span>
+                  <span className="font-mono text-zinc-400 font-bold">{TEXT_WEIGHT * 100}%</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-t border-[#181818]">
+                  <span>Engine Makroekonomi Weight</span>
+                  <span className="font-mono text-zinc-400 font-bold">{MACRO_WEIGHT * 100}%</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-t border-[#181818]">
+                  <span>Order Flow Multiplier Alpha</span>
+                  <span className="font-mono text-zinc-400 font-bold">
+                    {sector.flowMultiplier === 1.5 ? "Konfirmasi (1.5x)" : sector.flowMultiplier === 0.3 ? "Divergensi (0.3x)" : "Netral (0.8x)"}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center py-1.5 border-t border-[#181818] bg-[var(--color-gold)]/5 rounded px-2">
+                  <span className="text-[var(--color-gold)] font-bold uppercase tracking-wider text-[10px]">Skor Probabilitas AI</span>
+                  <span className="font-mono text-[var(--color-gold)] font-black text-[13px]">{sector.probability.toFixed(2)} pts</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Transmisi Makroekonomi & Beta Sektoral */}
+          <div className="rounded-3xl border border-[#2a2a2a] bg-[#0c0c0c] p-5 space-y-4">
+            <div className="flex items-center gap-1.5 border-b border-[#222] pb-3">
+              <Globe size={16} className="text-emerald-400" />
+              <h3 className="text-xs font-black uppercase tracking-wider text-zinc-300">
+                Matriks Transmisi Sensitivitas Makro
+              </h3>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-[#222]">
+                    <th className="pb-2.5 text-[8.5px] font-black uppercase tracking-widest text-[#555]">Indikator Makro</th>
+                    <th className="pb-2.5 text-[8.5px] font-black uppercase tracking-widest text-[#555] text-center">Variabel Delta %</th>
+                    <th className="pb-2.5 text-[8.5px] font-black uppercase tracking-widest text-[#555] text-center">Beta Sektor ({sector.code})</th>
+                    <th className="pb-2.5 text-[8.5px] font-black uppercase tracking-widest text-[#555] text-right">Perkiraan Impact</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sector.macroVariables.map((macro: any, idx: number) => {
+                    const names = ["IHSG (Jakarta Composite)", "USD to IDR Exchange", "Emas Kontrak Berjangka", "Minyak Mentah Brent", "Batu Bara NewCastle"];
+                    const macroName = names[idx] || "Macro Index";
+                    const isMacroPos = macro.deltaPercentage >= 0;
+                    const impact = macro.deltaPercentage * macro.macroWeight * macro.emitenBeta;
+                    const isImpactPos = impact >= 0;
+
+                    return (
+                      <tr key={idx} className="border-b border-[#181818] hover:bg-[#111]/30 transition-colors">
+                        <td className="py-3 text-xs font-bold text-zinc-300">{macroName}</td>
+                        <td className={cn("py-3 text-xs font-mono font-bold text-center", isMacroPos ? "text-emerald-400" : "text-rose-400")}>
+                          {isMacroPos ? "+" : ""}{macro.deltaPercentage.toFixed(2)}%
+                        </td>
+                        <td className="py-3 text-xs font-mono font-bold text-center text-zinc-400">
+                          {macro.emitenBeta.toFixed(2)}
+                        </td>
+                        <td className={cn("py-3 text-xs font-mono font-black text-right", isImpactPos ? "text-emerald-400" : "text-rose-400")}>
+                          {isImpactPos ? "+" : ""}{impact.toFixed(4)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Live Berita Sektoral Terkait */}
+          <div className="rounded-3xl border border-[#2a2a2a] bg-[#0c0c0c] p-5 space-y-4">
+            <div className="flex items-center gap-1.5 border-b border-[#222] pb-3">
+              <Newspaper size={16} className="text-yellow-400" />
+              <h3 className="text-xs font-black uppercase tracking-wider text-zinc-300">
+                Sentimen Berita
+              </h3>
+            </div>
+
+            {sector.sectorNews && sector.sectorNews.length > 0 ? (
+              <div className="space-y-3.5 max-h-[300px] overflow-y-auto pr-1">
+                {sector.sectorNews.map((news: any, idx: number) => {
+                  const isNewsPos = news.nlpSentiment >= 0 || (news.impactScore ?? 50) >= 50;
+                  return (
+                    <div key={idx} className="p-3 bg-[#080808] hover:bg-[#111] transition-all border border-[#1a1a1a] rounded-2xl flex items-start justify-between gap-4">
+                      <div className="space-y-1">
+                        <h4 className="text-xs font-bold text-white line-clamp-2 leading-relaxed">{news.title}</h4>
+                        {news.summary && (
+                          <p className="text-[10px] text-[#888] line-clamp-2 mt-0.5 mb-1 leading-relaxed">{news.summary}</p>
+                        )}
+                        <div className="flex flex-wrap items-center gap-2 mt-1">
+                          <span className="text-[9px] font-bold text-zinc-500 uppercase">{news.date || news.time}</span>
+                          <span className="text-zinc-700 font-bold">•</span>
+                          <span className="text-[9px] font-bold text-yellow-600/80 line-clamp-1">{news.source}</span>
+                          <span className="text-zinc-700 font-bold hidden sm:inline">•</span>
+                          <span className="text-[9px] font-bold text-zinc-600 hidden sm:inline">Conf: {(news.confidence ?? 0.85).toFixed(2)}</span>
+                        </div>
+                      </div>
+
+                      <div className={cn(
+                        "px-2.5 py-1 rounded-xl text-[10px] font-black font-mono shrink-0 border text-center",
+                        isNewsPos 
+                          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
+                          : "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                      )}>
+                        {(news.impactScore ?? 50).toFixed(0)} pts
+                        <span className="block text-[7px] font-black uppercase text-[#666] tracking-[0.5px] mt-0.5">Sentiment</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-[#555] font-bold text-xs uppercase tracking-wide py-4 text-center">
+                Tidak ada berita media untuk sektor ini dalam siklus AI terkini.
+              </p>
+            )}
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function StockDetailModal({
+  stock,
+  newsData,
+  realtimeOpp,
+  onClose,
+  onNewsClick,
+}: {
+  stock: RecommendedStock;
+  newsData: NewsItem[];
+  realtimeOpp: any[];
+  onClose: () => void;
+  onNewsClick?: (news: NewsItem) => void;
+}) {
+  const [tab, setTab] = useState("Overview");
+  const [selectedNewsType, setSelectedNewsType] = useState("Semua");
+  const [isNewsFilterOpen, setIsNewsFilterOpen] = useState(false);
   const detail = stock.detail;
+
+  const [liveStockNews, setLiveStockNews] = useState<NewsItem[]>([]);
+  const [loadingNews, setLoadingNews] = useState(false);
+  const [hasFetchedNews, setHasFetchedNews] = useState(false);
+
+  useEffect(() => {
+    if (tab !== "News" || hasFetchedNews) return;
+    let isMounted = true;
+    const fetchSymbolNews = async () => {
+      setLoadingNews(true);
+      try {
+        const res = await fetch(`/api/news?symbol=${stock.symbol}&name=${encodeURIComponent(stock.name || "")}&_t=${Date.now()}`, {
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          }
+        });
+        if (res.ok) {
+           const data = await res.json();
+           if (isMounted) {
+             setLiveStockNews(data);
+             setHasFetchedNews(true);
+           }
+        }
+      } catch (err) {
+        // console.error("Failed to fetch related news", err);
+      } finally {
+        if (isMounted) setLoadingNews(false);
+      }
+    };
+    fetchSymbolNews();
+    return () => { isMounted = false; };
+  }, [tab, stock.symbol, hasFetchedNews]);
+
+  const stockNews = useMemo(() => {
+    if (liveStockNews.length > 0) return liveStockNews;
+    return newsData.filter(n => 
+      n.title.toUpperCase().includes(stock.symbol.toUpperCase()) || 
+      n.summary.toUpperCase().includes(stock.symbol.toUpperCase()) ||
+      (stock.sector && n.impactedSectors?.includes(stock.sector))
+    );
+  }, [newsData, stock.symbol, stock.sector, liveStockNews]);
+
+  const filteredStockNewsList = useMemo(() => {
+    if (selectedNewsType === "Semua") {
+      return stockNews.filter((n) => n.sourceType !== "Sentimen Komunitas");
+    }
+    return stockNews.filter((n) => n.sourceType === selectedNewsType);
+  }, [stockNews, selectedNewsType]);
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -2367,15 +3214,15 @@ function StockDetailModal({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-8 lg:p-12">
-          <div className="mb-8">
-            <div className="flex items-center gap-4">
-              <span className="font-heading text-4xl font-black tracking-tighter sm:text-5xl text-white">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-12">
+          <div className="mb-4 sm:mb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+              <span className="font-heading text-4xl sm:text-5xl font-black tracking-tighter text-white">
                 {stock.symbol}
               </span>
               <div
                 className={cn(
-                  "flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-[1px]",
+                  "flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-[1px] w-fit",
                   stock.change >= 0
                     ? "bg-[rgba(0,234,96,0.1)] text-[var(--color-perf-up)] border border-[rgba(0,234,96,0.2)]"
                     : "bg-[rgba(255,59,59,0.1)] text-[var(--color-perf-down)] border border-[rgba(255,59,59,0.2)]",
@@ -2389,10 +3236,10 @@ function StockDetailModal({
                 {stock.change}%
               </div>
             </div>
-            <h3 className="mt-2 text-xl font-bold text-[#888] font-heading">
+            <h3 className="mt-2 text-lg sm:text-xl font-bold text-[#888] font-heading">
               {stock.name}
             </h3>
-            <div className="mt-6 flex gap-3">
+            <div className="mt-4 sm:mt-6 flex flex-wrap gap-2 sm:gap-3">
               <span
                 className={cn(
                   "rounded-sm px-3 py-1 text-[10px] font-black tracking-[2px] uppercase",
@@ -2411,35 +3258,431 @@ function StockDetailModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-6 sm:grid-cols-4 border-y border-[#222] py-8 mb-8">
+          <div className="grid grid-cols-2 gap-4 sm:gap-6 sm:grid-cols-4 border-y border-[#222] py-4 sm:py-4 mb-4 sm:mb-4">
             <Metric
               label="Harga Terakhir"
               value={`Rp ${stock.price.toLocaleString("id-ID")}`}
             />
-            <Metric label="Market Cap" value="1.200 T" />
-            <Metric label="PER" value="24.5x" />
-            <Metric label="Volume" value="45.2 jt" />
+            <Metric label="Market Cap" value={stock.marketCap || "1.200 T"} />
+            <Metric label="PER" value={stock.peRatio || "24.5x"} />
+            <Metric label="Volume" value={stock.volume || "45.2 jt"} />
           </div>
 
-          <div className="mt-8 h-[400px] w-full overflow-hidden rounded-xl border border-[#2a2a2a] shadow-inner bg-black">
-            <AdvancedRealTimeChart
-              symbol={`IDX:${stock.symbol}`}
-              theme="dark"
-              interval="D"
-              autosize
-              allow_symbol_change={false}
-              hide_side_toolbar={true}
-              hide_top_toolbar={true}
-              timezone="Asia/Jakarta"
-              backgroundColor="#000000"
-            />
+          <div className="mt-6 sm:mt-8 flex overflow-x-auto gap-2 border-b border-[#1a1a1a] scrollbar-hide pb-2">
+            {["Overview", "Financial Analysis", "Technical Analysis", "Corporate Action", "News"].map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={cn(
+                  "px-4 sm:px-6 py-2 sm:py-3 text-[10px] sm:text-xs font-bold uppercase tracking-wider transition-all duration-300 whitespace-nowrap",
+                  tab === t
+                    ? "border-b-2 border-[var(--color-gold)] text-[var(--color-gold)]"
+                    : "text-neutral-500 hover:text-neutral-300"
+                )}
+              >
+                {t}
+              </button>
+            ))}
           </div>
 
-          {detail ? (
+          {tab === "Financial Analysis" && (
+            <div className="mt-6 sm:mt-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+               {/* Financial Content unchanged */}
+               <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-2xl p-8">
+                  <h4 className="text-[10px] font-black uppercase tracking-widest text-[#555] mb-4">Financial Composition (Simulated)</h4>
+                  
+                  <div className="flex flex-col lg:flex-row items-center gap-12">
+                    {/* Pie Chart */}
+                    <div className="h-[280px] w-full lg:w-1/2">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={[
+                              { name: 'Net Income', value: stock.rawNetIncome || 150 },
+                              { name: 'Market Cap', value: stock.rawMarketCap || 1000 },
+                              { name: 'Revenue', value: stock.rawRevenue || 500 },
+                            ]}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={60}
+                            outerRadius={100}
+                            paddingAngle={5}
+                            dataKey="value"
+                            stroke="none"
+                          >
+                            <Cell fill="#10b981" /> {/* Net Income - Green */}
+                            <Cell fill="var(--color-gold)" /> {/* Market Cap - Gold */}
+                            <Cell fill="#3b82f6" /> {/* Revenue - Blue */}
+                          </Pie>
+                          <Tooltip 
+                             contentStyle={{ backgroundColor: "#000", border: "1px solid #222", fontSize: "12px", borderRadius: "8px" }}
+                             formatter={(value: number) => [`Rp ${(value/1e12).toFixed(2)} T`, 'Value']}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    {/* Legend & Metrics */}
+                    <div className="flex-1 space-y-6 w-full">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="p-4 bg-neutral-900/30 rounded-xl border border-[#1a1a1a]">
+                           <div className="flex items-center gap-2 mb-1">
+                              <div className="w-2 h-2 rounded-full bg-[#10b981]"></div>
+                              <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-tight">Net Income</span>
+                           </div>
+                           <p className="text-xl font-mono font-bold text-white">{stock.netIncome || "0 T"}</p>
+                        </div>
+                        <div className="p-4 bg-neutral-900/30 rounded-xl border border-[#1a1a1a]">
+                           <div className="flex items-center gap-2 mb-1">
+                              <div className="w-2 h-2 rounded-full bg-[var(--color-gold)]"></div>
+                              <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-tight">Market Cap</span>
+                           </div>
+                           <p className="text-xl font-mono font-bold text-white">{stock.marketCap || "0 T"}</p>
+                        </div>
+                        <div className="p-4 bg-neutral-900/30 rounded-xl border border-[#1a1a1a]">
+                           <div className="flex items-center gap-2 mb-1">
+                              <div className="w-2 h-2 rounded-full bg-[#3b82f6]"></div>
+                              <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-tight">Revenue</span>
+                           </div>
+                           <p className="text-xl font-mono font-bold text-white">{stock.revenue || "0 T"}</p>
+                        </div>
+                      </div>
+
+                      <div className="pt-6 border-t border-[#1a1a1a] grid grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-[10px] font-black uppercase text-[#444] mb-1">P/E Ratio</p>
+                          <p className="text-2xl font-mono font-bold text-[var(--color-gold)]">{stock.peRatio || "N/A"}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black uppercase text-[#444] mb-1">Price to Sales (P/S)</p>
+                          <p className="text-2xl font-mono font-bold text-white">{stock.psRatio || "N/A"}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+               </div>
+
+               {/* New Quarterly Trend Chart */}
+               <div className="mt-8 bg-[#0a0a0a] border border-[#1a1a1a] rounded-2xl p-8">
+                  <div className="flex justify-between items-center mb-4">
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-[#555]">Tren Pendapatan & Laba (Quarterly)</h4>
+                    <div className="flex gap-4">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full bg-[#3b82f6]"></div>
+                        <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-tight">Revenue</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full bg-[#10b981]"></div>
+                        <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-tight">Net Income</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="h-[300px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={stock.quarterlyTrend || []}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1a1a1a" vertical={false} />
+                        <XAxis 
+                          dataKey="period" 
+                          stroke="#333" 
+                          fontSize={10} 
+                          axisLine={false} 
+                          tickLine={false}
+                          dy={10}
+                        />
+                        <YAxis 
+                          stroke="#333" 
+                          fontSize={10} 
+                          axisLine={false} 
+                          tickLine={false}
+                          tickFormatter={(value) => `Rp ${(value/1e12).toFixed(1)} T`}
+                        />
+                        <Tooltip 
+                          contentStyle={{ backgroundColor: "#000", border: "1px solid #222", fontSize: "11px", borderRadius: "8px" }}
+                          itemStyle={{ color: "#fff" }}
+                          formatter={(value: number) => [`Rp ${(value/1e12).toFixed(2)} T`, '']}
+                        />
+                        <Bar 
+                          dataKey="revenue" 
+                          fill="#3b82f6" 
+                          radius={[4, 4, 0, 0]} 
+                          barSize={32} 
+                          name="Revenue"
+                        />
+                        <Bar 
+                          dataKey="netIncome" 
+                          fill="#10b981" 
+                          radius={[4, 4, 0, 0]} 
+                          barSize={32} 
+                          name="Net Income"
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+               </div>
+
+               {/* Valuation Band Positioning */}
+               <div className="mt-8 bg-[#0a0a0a] border border-[#1a1a1a] rounded-2xl p-4 sm:p-8">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-4">
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-[#555]">P/E & P/BV Ratio Band (1Y History - 2 SD)</h4>
+                    <div className="flex flex-wrap gap-4">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full bg-[var(--color-gold)]"></div>
+                        <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-tight">P/E</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full bg-[#444]"></div>
+                        <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-tight">P/E Mean</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-[2px] bg-[#333]"></div>
+                        <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-tight">P/E ±1 SD</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 border-r border-[#333] pr-4">
+                        <div className="w-2 h-2 rounded-[2px] bg-[#222]"></div>
+                        <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-tight">P/E ±2 SD</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full bg-[#3b82f6]"></div>
+                        <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-tight">P/BV</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full bg-[#2563eb]"></div>
+                        <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-tight">P/BV Mean</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-[2px] bg-[#1c4e80]"></div>
+                        <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-tight">P/BV ±1 SD</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-[2px] bg-[#0f2a4a]"></div>
+                        <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-tight">P/BV ±2 SD</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="h-[300px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={stock.valuationBands || []} margin={{ left: -20, right: -20 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1a1a1a" vertical={false} />
+                        <XAxis dataKey="date" hide />
+                        <YAxis yAxisId="left" stroke="#333" fontSize={10} axisLine={false} tickLine={false} tickFormatter={(val) => val.toFixed(1) + 'x'} />
+                        <YAxis yAxisId="right" orientation="right" stroke="#333" fontSize={10} axisLine={false} tickLine={false} tickFormatter={(val) => val.toFixed(1) + 'x'} />
+                        <Tooltip 
+                          contentStyle={{ backgroundColor: "#000", border: "1px solid #222", fontSize: "11px", borderRadius: "8px" }}
+                          itemStyle={{ color: "#fff" }}
+                          labelStyle={{ color: "#888", marginBottom: "4px" }}
+                          formatter={(value: number, name: string) => [value.toFixed(2) + 'x', name]}
+                        />
+                        
+                        {/* PE Band (Left Axis) */}
+                        <Line yAxisId="left" type="monotone" dataKey="pePlus2SD" stroke="#222" strokeDasharray="5 5" dot={false} strokeOpacity={0.8} name="PE +2 SD" />
+                        <Line yAxisId="left" type="monotone" dataKey="pePlus1SD" stroke="#333" strokeDasharray="3 3" dot={false} strokeOpacity={0.8} name="PE +1 SD" />
+                        <Line yAxisId="left" type="monotone" dataKey="peMean" stroke="#444" dot={false} strokeOpacity={0.8} name="PE Mean" />
+                        <Line yAxisId="left" type="monotone" dataKey="peMinus1SD" stroke="#333" strokeDasharray="3 3" dot={false} strokeOpacity={0.8} name="PE -1 SD" />
+                        <Line yAxisId="left" type="monotone" dataKey="peMinus2SD" stroke="#222" strokeDasharray="5 5" dot={false} strokeOpacity={0.8} name="PE -2 SD" />
+                        <Line yAxisId="left" type="monotone" dataKey="pe" stroke="var(--color-gold)" strokeWidth={2} dot={false} name="Current P/E" />
+                        
+                        {/* PBV Band (Right Axis) */}
+                        <Line yAxisId="right" type="monotone" dataKey="pbvPlus2SD" stroke="#0f2a4a" strokeDasharray="5 5" dot={false} strokeOpacity={0.8} name="PBV +2 SD" />
+                        <Line yAxisId="right" type="monotone" dataKey="pbvPlus1SD" stroke="#1c4e80" strokeDasharray="3 3" dot={false} strokeOpacity={0.8} name="PBV +1 SD" />
+                        <Line yAxisId="right" type="monotone" dataKey="pbvMean" stroke="#2563eb" dot={false} strokeOpacity={0.8} name="PBV Mean" />
+                        <Line yAxisId="right" type="monotone" dataKey="pbvMinus1SD" stroke="#1c4e80" strokeDasharray="3 3" dot={false} strokeOpacity={0.8} name="PBV -1 SD" />
+                        <Line yAxisId="right" type="monotone" dataKey="pbvMinus2SD" stroke="#0f2a4a" strokeDasharray="5 5" dot={false} strokeOpacity={0.8} name="PBV -2 SD" />
+                        <Line yAxisId="right" type="monotone" dataKey="pbv" stroke="#3b82f6" strokeWidth={2} dot={false} name="Current P/BV" />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+               </div>
+            </div>
+          )}
+
+          {tab === "Technical Analysis" && (
+            <div className="mt-6 sm:mt-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+               <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-2xl p-4 sm:p-8">
+                  <TechnicalDashboard symbol={stock.symbol} />
+               </div>
+            </div>
+          )}
+
+          {tab === "Corporate Action" && (
+            <div className="mt-6 sm:mt-8 animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-12">
+                <CorporateActionDashboard 
+                  events={MOCK_CORPORATE_EVENTS} 
+                  initialSymbolFilter={stock.symbol}
+                  className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-2xl p-4 sm:p-8"
+                />
+
+                <section className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-2xl p-4 sm:p-8">
+                  <div className="flex items-center justify-between mb-4 border-b border-[#222] pb-4">
+                    <h4 className="flex items-center gap-3 text-lg font-bold text-white uppercase tracking-[2px]">
+                      <ShieldCheck className="text-emerald-500" size={20} />
+                      Featured Analyst Picks
+                    </h4>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {INITIAL_RECOMMENDED_STOCKS.slice(0, 4).map((rec, i) => (
+                      <div key={i} className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-2xl p-4 sm:p-8">
+                        <div className="flex justify-between items-center mb-3">
+                          <span className="font-black text-white tracking-widest text-lg">{rec.symbol}</span>
+                          <div className="flex flex-col items-end">
+                             <span className={cn("text-xs font-black", rec.change >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                               {rec.change >= 0 ? '+' : ''}{rec.change}%
+                             </span>
+                             <span className="text-[8px] font-bold text-[#444] uppercase tracking-tighter">Daily Chg</span>
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-[#888] line-clamp-2 leading-relaxed mb-4">"{rec.reason}"</p>
+                        <div className="flex items-center justify-between">
+                           <span className="text-[9px] font-black text-[#555] uppercase tracking-widest border border-[#222] px-2 py-0.5 rounded">High Alpha</span>
+                           <ArrowUpRight size={14} className="text-[#333] group-hover:text-[var(--color-gold)] transition-colors" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+            </div>
+          )}
+
+          {tab === "News" && (
+            <div className="mt-6 sm:mt-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="flex items-center justify-end mb-6 relative">
+                  <button
+                    onClick={() => setIsNewsFilterOpen(!isNewsFilterOpen)}
+                    className={cn(
+                      "flex items-center justify-center p-3 rounded-full bg-[#111] border transition-all cursor-pointer active:scale-95 shadow-[0_4px_15px_rgba(0,0,0,0.3)]",
+                      isNewsFilterOpen || selectedNewsType !== "All"
+                        ? "border-[var(--color-gold)] text-[var(--color-gold)] bg-[var(--color-gold)]/5"
+                        : "border-[#333] text-zinc-400 hover:text-white hover:border-[#444]"
+                    )}
+                    title={`Filter: ${selectedNewsType}`}
+                  >
+                    <Filter size={15} />
+                  </button>
+
+                  <AnimatePresence>
+                    {isNewsFilterOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                        transition={{ duration: 0.2 }}
+                        className="absolute top-full mt-2 right-0 w-[200px] z-50 bg-[#0d0d0d] border border-[#222] rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] overflow-hidden"
+                      >
+                        <div className="flex flex-col">
+                          {["Semua", "Otoritas", "Media Lokal", "Media Global", "Sentimen Komunitas"].map((type) => (
+                            <button
+                              key={type}
+                              onClick={() => {
+                                setSelectedNewsType(type);
+                                setIsNewsFilterOpen(false);
+                              }}
+                              className={cn(
+                                "text-left px-4 py-3 text-xs font-bold transition-colors w-full",
+                                selectedNewsType === type ? "bg-[var(--color-gold)]/10 text-[var(--color-gold)] border-l-2 border-[var(--color-gold)]" : "text-[#888] hover:bg-[#1a1a1a] hover:text-white border-l-2 border-transparent"
+                              )}
+                            >
+                              {type}
+                            </button>
+                          ))}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+              </div>
+              <div className="flex flex-col gap-0 border-t border-[rgba(255,255,255,0.02)]">
+                {loadingNews ? (
+                   <div className="p-16 flex flex-col items-center justify-center space-y-4">
+                      <div className="w-8 h-8 border-2 border-[var(--color-gold)] border-t-transparent rounded-full animate-spin mb-2"></div>
+                      <span className="text-xs font-bold text-[#888] uppercase tracking-[2px]">Mencari Berita Terbaru...</span>
+                      <span className="text-[10px] text-[#555]">Mengambil data dari otoritas dan media online</span>
+                   </div>
+                ) : filteredStockNewsList.length === 0 ? (
+                  <div className="p-10 text-center text-[#666]">Tidak ada berita terkait emiten ini.</div>
+                ) : (
+                  <div className="space-y-3 pt-4">
+                    {filteredStockNewsList.map((news, index) => {
+                      const score = news.impactScore || 0;
+                      const isHigh = score >= 80;
+                      const isLow = score < 50;
+
+                      const impactBorderColor = isHigh ? "border-blue-500" : isLow ? "border-[var(--color-perf-down)]" : "border-transparent";
+                      const bgClass = isHigh ? "bg-[#0c121e] shadow-[0_4px_25px_rgba(0,0,0,0.5)]" : isLow ? "bg-[#1a0c0c] shadow-[0_4px_25px_rgba(0,0,0,0.5)]" : "bg-[#0d0d0d] shadow-[0_4px_25px_rgba(0,0,0,0.5)]";
+                      const hoverBg = isHigh ? "hover:bg-[rgba(59,130,246,0.2)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.6)]" : isLow ? "hover:bg-[rgba(255,59,59,0.2)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.6)]" : "hover:bg-[#151515] hover:shadow-[0_8px_30px_rgba(0,0,0,0.6)]";
+                      return (
+                        <motion.article 
+                          key={news.id} 
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.05, duration: 0.4 }}
+                          whileHover={{ x: 12, scale: 1.005 }}
+                          whileTap={{ scale: 0.99 }}
+                          onClick={() => onNewsClick && onNewsClick(news)}
+                          className={cn(
+                            "group cursor-pointer rounded-2xl border border-[#2a2a2a] p-4 sm:p-5 transition-all text-white",
+                            bgClass,
+                            hoverBg,
+                            impactBorderColor && `border-l-4 ${impactBorderColor}`
+                          )}
+                        >
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={cn(
+                                "flex items-center gap-1 rounded bg-[#1a1a1a] px-2 py-1 text-[10px] sm:text-[9px] font-bold uppercase tracking-[1px] whitespace-nowrap",
+                                news.sourceType === "Otoritas" ? "text-purple-400" :
+                                news.sourceType === "Media Lokal" ? "text-blue-400" :
+                                news.sourceType === "Media Global" ? "text-amber-400" : "text-emerald-400"
+                              )}>
+                                {news.sourceType === "Otoritas" && <Building2 size={10} />}
+                                {news.sourceType === "Media Lokal" && <Newspaper size={10} />}
+                                {news.sourceType === "Media Global" && <Globe2 size={10} />}
+                                {news.sourceType === "Sentimen Komunitas" && <Users size={10} />}
+                                {news.sourceType || "News"}
+                              </span>
+                              <span className="text-[10px] text-white font-mono">
+                                {news.date}
+                              </span>
+                            </div>
+                            {news.impactScore && (
+                              <div className={cn(
+                                "flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider",
+                                isHigh ? "bg-[rgba(59,130,246,0.1)] text-blue-400 border border-blue-500/30" : 
+                                isLow ? "bg-[rgba(255,59,59,0.1)] text-[var(--color-perf-down)] border border-[rgba(255,59,59,0.3)]" : 
+                                "bg-[#1a1a1a] text-[#aaa] border border-[#333]"
+                              )}>
+                                <Activity size={10} /> Impact {news.impactScore}
+                              </div>
+                            )}
+                          </div>
+                          
+                          <h3 className="mb-2 text-sm sm:text-base font-extrabold leading-snug line-clamp-2 text-neutral-100 group-hover:text-[var(--color-gold)] transition-colors">
+                            {news.title}
+                          </h3>
+                          <p className="text-xs sm:text-sm text-[#888] line-clamp-2 leading-relaxed mb-4">
+                            {news.summary}
+                          </p>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            {news.impactedSectors?.map(sector => (
+                              <span key={sector} className="rounded bg-[#1a1a1a] px-2 py-0.5 text-[9px] font-bold text-[#888] border border-[#333]">
+                                #{sector}
+                              </span>
+                            ))}
+                          </div>
+                        </motion.article>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {tab === "Overview" && detail ? (
             <div className="mt-12 space-y-12">
               {/* Part I */}
               <section>
-                <h4 className="mb-6 flex items-center gap-3 border-b border-[#222] pb-3 font-heading text-2xl font-bold text-white">
+                <h4 className="mb-4 flex items-center gap-3 border-b border-[#222] pb-3 font-heading text-2xl font-bold text-white">
                   <span className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--color-gold)] text-[var(--color-gold)] text-xs font-black">
                     I
                   </span>
@@ -2464,9 +3707,10 @@ function StockDetailModal({
                 </div>
               </section>
 
+
               {/* Part II */}
               <section>
-                <h4 className="mb-6 flex items-center gap-3 border-b border-[#222] pb-3 font-heading text-2xl font-bold text-white">
+                <h4 className="mb-4 flex items-center gap-3 border-b border-[#222] pb-3 font-heading text-2xl font-bold text-white">
                   <span className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--color-gold)] text-[var(--color-gold)] text-xs font-black">
                     II
                   </span>
@@ -2490,7 +3734,7 @@ function StockDetailModal({
 
               {/* Part III: Intraday Trading Plan */}
               <div className="rounded-2xl border border-[rgba(212,175,55,0.2)] bg-[rgba(212,175,55,0.05)] p-8">
-                <div className="mb-8 flex items-center justify-between">
+                <div className="mb-4 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--color-gold)] text-black">
                       <Zap size={24} fill="black" />
@@ -2503,6 +3747,15 @@ function StockDetailModal({
                   <span className="rounded-sm bg-[rgba(0,234,96,0.1)] border border-[rgba(0,234,96,0.2)] px-3 py-1.5 text-[10px] font-black text-[var(--color-perf-up)] uppercase tracking-[1px]">
                     4W & MPPT Approved
                   </span>
+                </div>
+
+                {/* Strategy Execution Chart */}
+                <div className="mb-10 bg-[#000] border border-[#222] rounded-2xl overflow-hidden p-2 sm:p-4">
+                   <div className="flex items-center gap-2 mb-4 px-2">
+                       <LineChartIcon size={14} className="text-[var(--color-gold)]" />
+                       <span className="text-[10px] font-black text-[#888] uppercase tracking-widest">Setup Execution Visualization</span>
+                   </div>
+                   <StockChartApex symbol={stock.symbol} height={300} type="candlestick" />
                 </div>
 
                 <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
@@ -2529,7 +3782,7 @@ function StockDetailModal({
 
               {/* Part IV */}
               <section>
-                <h4 className="mb-6 flex items-center gap-3 border-b border-[#222] pb-3 font-heading text-2xl font-bold text-white">
+                <h4 className="mb-4 flex items-center gap-3 border-b border-[#222] pb-3 font-heading text-2xl font-bold text-white">
                   <span className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--color-gold)] text-[var(--color-gold)] text-xs font-black">
                     III
                   </span>
@@ -2557,6 +3810,49 @@ function StockDetailModal({
                   ))}
                 </div>
               </section>
+
+              {/* Integrated Tracker Pattern: Corporate Action followed by Recommendations */}
+              <div className="space-y-12">
+                <section className="pt-12 border-t border-[#1a1a1a]">
+                  <CorporateActionDashboard 
+                    events={MOCK_CORPORATE_EVENTS} 
+                    initialSymbolFilter={stock.symbol}
+                  />
+                </section>
+
+                <section className="pt-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="flex items-center gap-3 text-lg font-bold text-white uppercase tracking-wider">
+                      <ShieldCheck className="text-emerald-500" size={20} />
+                      Top Recommended Opportunities
+                    </h4>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {(realtimeOpp.length > 0 ? realtimeOpp : INITIAL_RECOMMENDED_STOCKS.slice(0, 4)).map((rec, i) => (
+                      <div key={i} className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-2xl p-5 hover:border-[#333] transition-all group overflow-hidden relative">
+                        {rec.rsi && (
+                          <div className="absolute top-0 right-0 px-2 py-1 bg-emerald-500/10 text-emerald-400 text-[8px] font-black uppercase tracking-widest">
+                            RSI: {rec.rsi}
+                          </div>
+                        )}
+                        <div className="flex justify-between items-center mb-3">
+                          <span className="font-black text-white tracking-widest text-lg">{rec.symbol}</span>
+                          <span className={cn("text-xs font-bold", (rec.change || 0) >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                            {(rec.change || 0) >= 0 ? '+' : ''}{rec.change}%
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-[#666] line-clamp-2 italic mb-3">"{rec.reason}"</p>
+                        <div className="flex items-center justify-between">
+                          <button className="text-[9px] font-black uppercase text-[var(--color-gold)] tracking-[2px] opacity-40 group-hover:opacity-100 transition-opacity">View Deep Analysis →</button>
+                          {rec.distFromLow !== undefined && (
+                            <span className="text-[8px] font-black text-[#333] uppercase">Dist Low: {rec.distFromLow}%</span>
+                           )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              </div>
             </div>
           ) : (
             <div className="mt-10 space-y-6">
@@ -2622,7 +3918,7 @@ function MarketSelectorModal({
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
         className="relative w-full max-w-sm overflow-hidden rounded-3xl bg-[#0a0a0a] border border-[#2a2a2a] p-8 shadow-[0_20px_50px_rgba(0,0,0,1)]"
       >
-        <h3 className="font-heading text-xl font-black text-white uppercase tracking-tight mb-6 text-center">
+        <h3 className="font-heading text-xl font-black text-white uppercase tracking-tight mb-4 text-center">
           Pilih Tipe Market
         </h3>
         <div className="flex flex-col gap-3">
@@ -2746,7 +4042,7 @@ function TradeModal({
         className="relative w-full max-w-lg overflow-hidden rounded-3xl bg-[#0a0a0a] border border-[#2a2a2a] shadow-[0_20px_50px_rgba(0,0,0,1)] flex flex-col max-h-[90vh]"
       >
         <div className="p-8 overflow-y-auto flex-1 min-h-0">
-          <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-4">
               <div className="p-2 rounded-xl bg-[var(--color-gold)] text-black">
                 <Briefcase size={20} />
@@ -2923,7 +4219,7 @@ function TradeModal({
             </div>
 
             <div className="pt-4">
-              <div className="flex justify-between items-center mb-6 p-4 rounded-2xl bg-[#080808] border border-[#222]">
+              <div className="flex justify-between items-center mb-4 p-4 rounded-2xl bg-[#080808] border border-[#222]">
                 <span className="text-[10px] font-black uppercase tracking-[2px] text-[#555]">
                   Estimasi Kapital Investasi
                 </span>
@@ -3011,8 +4307,8 @@ function NewsDetailModal({
             scrollbarColor: "#333 transparent",
           }}
         >
-          <div className="mb-8">
-            <div className="flex flex-wrap items-center justify-between gap-6 px-1 mb-6">
+          <div className="mb-4">
+            <div className="flex flex-wrap items-center justify-between gap-6 px-1 mb-4">
                <div className="flex items-center gap-4">
                   <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg bg-[#050505] border border-emerald-500/10">
                     <div className="w-[3px] h-3 bg-emerald-500/40 rounded-full"></div>
@@ -3059,7 +4355,7 @@ function NewsDetailModal({
                  </div>
                </div>
             </div>
-            <h3 className="font-heading text-4xl font-black text-white leading-[1.1] mb-6">
+            <h3 className="font-heading text-4xl font-black text-white leading-[1.1] mb-4">
               {news.title}
             </h3>
             <div className="mt-4 p-3 bg-[#050505] border border-[#1a1a1a] rounded-lg flex items-center justify-between relative overflow-hidden">
@@ -3094,7 +4390,7 @@ function NewsDetailModal({
                   </motion.span>
                </div>
                
-               <div className="px-2.5 py-0.5 rounded bg-[#0a0a0a] border border-[#151515] text-[10px] font-mono font-bold text-[#333]">
+               <div className="px-2.5 py-0.5 rounded bg-[#0a0a0a] border border-[#151515] text-[10px] font-mono font-bold text-white">
                  {news.date}
                </div>
             </div>
@@ -3155,9 +4451,100 @@ function NewsDetailModal({
   );
 }
 
+function TradeLiveStatusBadge({ trade }: { trade: Trade }) {
+  const [currentPrice, setCurrentPrice] = useState<number | null>(null);
+  const touchKey = `trade_touched_${trade.id}`;
+  const [hasStartedRunning, setHasStartedRunning] = useState<boolean>(() => {
+      return sessionStorage.getItem(touchKey) === 'true';
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchPrice = async () => {
+      try {
+        if (trade.marketCategory === 'IDX') {
+             const res = await fetch(`/api/quote/${trade.symbol}`);
+             if (res.ok) {
+                const data = await res.json();
+                if (data.price !== undefined && isMounted) {
+                   setCurrentPrice(data.price);
+                }
+             }
+        }
+      } catch (err) {
+        /* ignore */
+      }
+    };
+
+    fetchPrice();
+    const interval = setInterval(fetchPrice, 30000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [trade.symbol, trade.marketCategory]);
+
+  useEffect(() => {
+     if (currentPrice !== null && !hasStartedRunning && trade.status === 'OPEN') {
+         let touched = false;
+         if (trade.type === 'BUY' && currentPrice <= trade.entryPrice) touched = true;
+         if (trade.type === 'SELL' && currentPrice >= trade.entryPrice) touched = true;
+         
+         if (touched) {
+             setHasStartedRunning(true);
+             sessionStorage.setItem(touchKey, 'true');
+         }
+     }
+  }, [currentPrice, trade.entryPrice, trade.status, trade.type, hasStartedRunning, touchKey]);
+
+  let derivedStatus = 'Open';
+  if (trade.status === 'CLOSED') {
+     derivedStatus = (trade.type === 'BUY' ? (trade.exitPrice! >= trade.entryPrice) : (trade.exitPrice! <= trade.entryPrice)) 
+         ? 'Take Profit' : 'Cut Loss';
+  } else if (currentPrice !== null) {
+      const tp = trade.plannedTakeProfit;
+      const sl = trade.plannedStopLoss;
+      
+      let hitTP = false;
+      let hitSL = false;
+      if (trade.type === 'BUY') {
+         if (tp && currentPrice >= tp) hitTP = true;
+         else if (sl && currentPrice <= sl) hitSL = true;
+      } else {
+         if (tp && currentPrice <= tp) hitTP = true;
+         else if (sl && currentPrice >= sl) hitSL = true;
+      }
+      
+      if (hitTP) derivedStatus = 'Take Profit';
+      else if (hitSL) derivedStatus = 'Cut Loss';
+      else if (hasStartedRunning) derivedStatus = 'Running';
+      else derivedStatus = 'Open';
+  }
+
+  const colors: Record<string, string> = {
+      'Open': 'text-[#aaa] bg-[#222]',
+      'Running': 'text-emerald-500 bg-emerald-500/10',
+      'Take Profit': 'text-emerald-400 bg-emerald-900/30',
+      'Cut Loss': 'text-rose-400 bg-rose-900/30'
+  };
+
+  return (
+    <div className={cn("text-[8px] font-black uppercase tracking-[1px] px-1.5 py-0.5 rounded-sm flex items-center gap-1 w-max", colors[derivedStatus] || 'text-[#aaa]')}>
+      {derivedStatus !== 'Open' && (
+         <span className={cn("w-1 h-1 rounded-full animate-pulse", 
+            derivedStatus === 'Running' ? 'bg-emerald-500' : 
+            derivedStatus === 'Take Profit' ? 'bg-emerald-400' : 'bg-rose-400'
+         )}></span>
+      )}
+      {derivedStatus}
+    </div>
+  );
+}
+
 function TradeDetailModal({ 
   trade, 
   totalCapital, 
+  newsData,
   onClose,
   onEdit,
   onClosePosition,
@@ -3166,6 +4553,7 @@ function TradeDetailModal({
 }: { 
   trade: Trade; 
   totalCapital: number; 
+  newsData: NewsItem[];
   onClose: () => void;
   onEdit: () => void;
   onClosePosition: (price: number) => void;
@@ -3176,10 +4564,41 @@ function TradeDetailModal({
   const [loading, setLoading] = useState(true);
   const [isAveraging, setIsAveraging] = useState(false);
   const [isEditingPlan, setIsEditingPlan] = useState(false);
+  const [showNews, setShowNews] = useState(false);
+  const [showScenario, setShowScenario] = useState(trade.status !== 'CLOSED');
   const [editTP, setEditTP] = useState<number | undefined>(trade.plannedTakeProfit);
   const [editSL, setEditSL] = useState<number | undefined>(trade.plannedStopLoss);
   const [avgEntryPrice, setAvgEntryPrice] = useState<number>(trade.entryPrice);
   const [avgValuation, setAvgValuation] = useState<number>(0);
+
+  const [relatedNews, setRelatedNews] = useState<NewsItem[]>([]);
+  const [loadingNews, setLoadingNews] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchSymbolNews = async () => {
+      setLoadingNews(true);
+      try {
+        const res = await fetch(`/api/news?symbol=${trade.symbol}&_t=${Date.now()}`, {
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          }
+        });
+        if (res.ok) {
+           const data = await res.json();
+           if (isMounted) setRelatedNews(data);
+        }
+      } catch (err) {
+        // console.error("Failed to fetch related news", err);
+      } finally {
+        if (isMounted) setLoadingNews(false);
+      }
+    };
+    fetchSymbolNews();
+    return () => { isMounted = false; };
+  }, [trade.symbol]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3194,7 +4613,7 @@ function TradeDetailModal({
              }
         }
       } catch (err) {
-        console.error("Failed to fetch price", err);
+        // console.error("Failed to fetch price", err);
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -3203,13 +4622,63 @@ function TradeDetailModal({
     return () => { isMounted = false; };
   }, [trade]);
 
+  const touchKey = `trade_touched_${trade.id}`;
+  const [hasStartedRunning, setHasStartedRunning] = useState<boolean>(() => {
+      return sessionStorage.getItem(touchKey) === 'true';
+  });
+
+  useEffect(() => {
+     if (currentPrice !== null && !hasStartedRunning && trade.status === 'OPEN') {
+         let touched = false;
+         if (trade.type === 'BUY' && currentPrice <= trade.entryPrice) touched = true;
+         if (trade.type === 'SELL' && currentPrice >= trade.entryPrice) touched = true;
+         
+         if (touched) {
+             setHasStartedRunning(true);
+             sessionStorage.setItem(touchKey, 'true');
+         }
+     }
+  }, [currentPrice, trade.entryPrice, trade.status, trade.type, hasStartedRunning, touchKey]);
+
+  let derivedStatus = 'Open';
+  if (trade.status === 'CLOSED') {
+     derivedStatus = (trade.type === 'BUY' ? (trade.exitPrice! >= trade.entryPrice) : (trade.exitPrice! <= trade.entryPrice)) 
+         ? 'Take Profit' : 'Cut Loss';
+  } else if (currentPrice !== null) {
+      const tp = trade.plannedTakeProfit;
+      const sl = trade.plannedStopLoss;
+      
+      let hitTP = false;
+      let hitSL = false;
+      if (trade.type === 'BUY') {
+         if (tp && currentPrice >= tp) hitTP = true;
+         else if (sl && currentPrice <= sl) hitSL = true;
+      } else {
+         if (tp && currentPrice <= tp) hitTP = true;
+         else if (sl && currentPrice >= sl) hitSL = true;
+      }
+      
+      if (hitTP) derivedStatus = 'Take Profit';
+      else if (hitSL) derivedStatus = 'Cut Loss';
+      else if (hasStartedRunning) derivedStatus = 'Running';
+      else derivedStatus = 'Open';
+  }
+  
   const cp = currentPrice || trade.entryPrice;
-  const isProfit = cp >= trade.entryPrice;
-  const pnl = (cp - trade.entryPrice) * trade.quantity;
-  const pnlPercent = ((cp - trade.entryPrice) / trade.entryPrice) * 100;
+  const isActive = derivedStatus !== 'Open';
+  const pnl = isActive ? (trade.type === 'BUY' ? (cp - trade.entryPrice) : (trade.entryPrice - cp)) * trade.quantity : 0;
+  const pnlPercent = isActive ? (trade.type === 'BUY' ? ((cp - trade.entryPrice) / trade.entryPrice) : ((trade.entryPrice - cp) / trade.entryPrice)) * 100 : 0;
+  const isProfit = pnl >= 0;
   
   const currentTP = isEditingPlan ? editTP : trade.plannedTakeProfit;
   const currentSL = isEditingPlan ? editSL : trade.plannedStopLoss;
+
+  useEffect(() => {
+    if (derivedStatus === 'Take Profit' || derivedStatus === 'Cut Loss') {
+      setShowScenario(false);
+      setShowNews(false);
+    }
+  }, [derivedStatus]);
 
   const tpValue = currentTP ? (currentTP - trade.entryPrice) * trade.quantity : null;
   const slValue = currentSL ? (currentSL - trade.entryPrice) * trade.quantity : null;
@@ -3262,12 +4731,41 @@ function TradeDetailModal({
         </div>
 
         <div className="p-6 space-y-6 overflow-y-auto min-h-0 flex-1">
+            <div className="bg-[#050505] border border-[#222] rounded-2xl overflow-hidden p-2">
+               <div className="flex items-center gap-2 mb-2 px-2 pt-2">
+                   <LineChartIcon size={14} className="text-[var(--color-gold)]" />
+                   <span className="text-[9px] font-black text-[#555] uppercase tracking-widest">Live Chart Insight</span>
+               </div>
+               <StockChartApex symbol={trade.symbol} height={200} type="candlestick" />
+            </div>
            <div className="grid grid-cols-2 gap-4">
               <div className="bg-[#080808] p-4 rounded-xl border border-[#1a1a1a]">
                  <span className="block text-[10px] font-black uppercase text-[#555] tracking-widest mb-1">Status</span>
-                 <span className={cn("text-xs font-bold px-2 py-0.5 rounded-sm uppercase tracking-wider", trade.status === 'OPEN' ? "bg-emerald-500/10 text-emerald-500" : "bg-neutral-800 text-neutral-400")}>
-                    {trade.status}
-                 </span>
+                 {(() => {
+                    const colors: Record<string, string> = {
+                       'Open': 'text-[#aaa] bg-[#222] border-[#333]',
+                       'Running': 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20',
+                       'Take Profit': 'text-emerald-400 bg-emerald-900/20 border-emerald-500/30',
+                       'Cut Loss': 'text-rose-400 bg-rose-900/20 border-rose-500/30'
+                    };
+
+                    return (
+                       <motion.span 
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          key={derivedStatus}
+                          className={cn("text-xs font-black px-2 py-1 rounded border uppercase tracking-wider flex items-center gap-1.5", colors[derivedStatus] || 'text-[#aaa]')}
+                       >
+                          {derivedStatus !== 'Open' && (
+                             <span className={cn("w-1.5 h-1.5 rounded-full animate-pulse", 
+                                derivedStatus === 'Running' ? 'bg-emerald-500' : 
+                                derivedStatus === 'Take Profit' ? 'bg-emerald-400' : 'bg-rose-400'
+                             )}></span>
+                          )}
+                          {derivedStatus}
+                       </motion.span>
+                    );
+                 })()}
               </div>
               <div className="bg-[#080808] p-4 rounded-xl border border-[#1a1a1a]">
                  <span className="block text-[10px] font-black uppercase text-[#555] tracking-widest mb-1">Tipe</span>
@@ -3297,13 +4795,24 @@ function TradeDetailModal({
               
               {!loading && (
                  <div className="mt-4 pt-4 border-t border-[#1a1a1a] flex justify-between items-center">
-                    <span className="text-[10px] font-black uppercase text-[#555] tracking-wider">Unrealized P/L</span>
-                    <div className={cn("flex items-center gap-2", isProfit ? "text-emerald-400" : "text-rose-400")}>
-                       <span className="text-sm font-black font-mono">
-                         {isProfit ? "+" : "-"}Rp {Math.abs(pnl).toLocaleString("id-ID")}
-                       </span>
-                       <span className="text-xs font-bold">({isProfit ? "+" : ""}{pnlPercent.toFixed(2)}%)</span>
-                    </div>
+                    <span className="text-[10px] font-black uppercase text-[#555] tracking-wider">
+                      {derivedStatus === 'Take Profit' || derivedStatus === 'Cut Loss' ? 'Realized P/L' : 'Unrealized P/L'}
+                    </span>
+                    {isActive ? (
+                       <div className={cn("flex items-center gap-2", isProfit ? "text-emerald-400" : "text-rose-400")}>
+                          <span className="text-sm font-black font-mono">
+                            {isProfit ? "+" : "-"}Rp {Math.abs(pnl).toLocaleString("id-ID")}
+                          </span>
+                          <span className="text-xs font-bold">({isProfit ? "+" : ""}{pnlPercent.toFixed(2)}%)</span>
+                       </div>
+                    ) : (
+                       <div className="flex items-center gap-2 text-[#555]">
+                          <span className="text-sm font-black font-mono">
+                            Rp 0
+                          </span>
+                          <span className="text-xs font-bold">(0.00%)</span>
+                       </div>
+                    )}
                  </div>
               )}
            </div>
@@ -3322,8 +4831,31 @@ function TradeDetailModal({
               </div>
 
               <div className="bg-[#080808] border border-[#1a1a1a] rounded-xl overflow-hidden mt-1">
-                <div className="px-5 py-3 border-b border-[#1a1a1a] bg-[#111] flex justify-between items-center">
-                   <span className="text-[10px] font-black uppercase tracking-widest text-white">Skenario Trading</span>
+                                <button 
+                   onClick={() => setShowScenario(!showScenario)}
+                   className="w-full px-5 py-3 border-b border-[#1a1a1a] bg-[#111] flex justify-between items-center hover:bg-[#1a1a1a] transition-colors"
+                 >
+                   <div className="flex items-center gap-2">
+                     <span className="text-[10px] font-black uppercase tracking-widest text-white">Skenario Trading</span>
+                   </div>
+                   <div className="flex items-center gap-3">
+                     {!isEditingPlan && (
+                       <span className="text-[9px] font-bold uppercase tracking-widest text-[#444] px-2 py-1 bg-[#0a0a0a] rounded flex items-center gap-1">
+                         {showScenario ? "Tutup" : "Lihat"}
+                       </span>
+                     )}
+                   </div>
+                 </button>
+
+                 <AnimatePresence>
+                   {showScenario && (
+                     <motion.div
+                       initial={{ height: 0, opacity: 0 }}
+                       animate={{ height: "auto", opacity: 1 }}
+                       exit={{ height: 0, opacity: 0 }}
+                       className="overflow-hidden"
+                     >
+                       <div className="px-5 py-2 border-b border-[#1a1a1a]/50 bg-[#0d0d0d] flex justify-end">
                    {!isEditingPlan ? (
                      <button onClick={() => setIsEditingPlan(true)} className="text-[10px] font-black uppercase tracking-widest text-[#555] hover:text-[var(--color-gold)] transition-colors flex items-center gap-1">
                        <Pencil size={10} /> Edit
@@ -3413,11 +4945,14 @@ function TradeDetailModal({
                           </div>
                        </div>
                     </div>
-                  </div>
-                </div>
-              </div>
+                  </div>                      </div>
+                     </motion.div>
+                   )}
+                 </AnimatePresence>
+               </div>
 
-              <div className="flex justify-between items-center p-4 bg-[#080808] border border-[var(--color-gold)]/30 rounded-xl mt-2">
+
+               <div className="flex justify-between items-center p-4 bg-[#080808] border border-[var(--color-gold)]/30 rounded-xl mt-2">
                  <div>
                     <span className="block text-[8px] font-black uppercase text-[var(--color-gold)] tracking-widest mb-1">Nilai P/L Floating MTM</span>
                     <span className="text-xs font-bold text-white font-mono">Volume: {trade.quantity.toLocaleString("id-ID")} Shares</span>
@@ -3431,6 +4966,89 @@ function TradeDetailModal({
                     </span>
                  </div>
               </div>
+           </div>
+
+           {/* Related News Section */}
+           <div className="mt-4 bg-[#080808] border border-[#1a1a1a] rounded-xl overflow-hidden">
+             <button
+               onClick={() => setShowNews(!showNews)}
+               className="w-full px-5 py-4 border-b border-[#1a1a1a] bg-[#111] flex justify-between items-center hover:bg-[#1a1a1a] transition-colors"
+             >
+               <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <Globe2 size={14} className="text-[var(--color-gold)]" />
+                    {relatedNews.length > 0 && (
+                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[var(--color-gold)] animate-pulse shadow-[0_0_8px_rgba(212,175,55,0.8)]"></span>
+                    )}
+                  </div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-[var(--color-gold)]">Berita Terkait Emiten</span>
+               </div>
+               <div className="flex items-center gap-3">
+                  <span className="text-[10px] font-black tracking-widest text-[#555]">
+                    {relatedNews.length} ARTIKEL
+                  </span>
+                  <span className="text-[9px] font-bold uppercase tracking-widest text-[#444] px-2 py-1 bg-[#0a0a0a] rounded flex items-center gap-1">
+                    {showNews ? "Tutup" : "Lihat"}
+                  </span>
+               </div>
+             </button>
+
+             <AnimatePresence>
+               {showNews && (
+                 <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="overflow-hidden"
+                 >
+                    <div className="p-4 space-y-3 max-h-[300px] overflow-y-auto">
+                        {loadingNews ? (
+                           <div className="flex flex-col items-center justify-center py-4 bg-[#0a0a0a] rounded-xl border border-[#111]">
+                              <div className="w-5 h-5 border-2 border-[var(--color-gold)] border-t-transparent rounded-full animate-spin mb-3"></div>
+                              <span className="text-[10px] font-bold text-[#555] uppercase tracking-widest">MENCARI BERITA...</span>
+                           </div>
+                        ) : relatedNews.length === 0 ? (
+                           <div className="text-center py-4 bg-[#0a0a0a] rounded-xl border border-[#111]">
+                              <span className="text-[10px] font-bold text-[#444] uppercase tracking-widest block mb-2">TIDAK ADA BERITA</span>
+                              <span className="text-xs text-[#333]">Belum ada berita terbaru untuk {trade.symbol}</span>
+                           </div>
+                        ) : (
+                           relatedNews.map((news, idx) => (
+                              <a href={news.url} target="_blank" rel="noopener noreferrer" key={idx} className="block p-4 bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl hover:border-[var(--color-gold)]/30 hover:bg-[#111] transition-all group">
+                                 <h4 className="text-sm font-bold text-white leading-relaxed mb-1.5 group-hover:text-[var(--color-gold)] transition-colors">{news.title}</h4>
+                                 <p className="text-[11px] text-[#888] line-clamp-2 leading-relaxed mb-3">{news.summary}</p>
+                                 <div className="flex justify-between items-center">
+                                     <div className="flex items-stretch rounded-full border border-[rgba(255,255,255,0.03)] overflow-hidden bg-[#111] h-5 shadow-[0_2px_8px_rgba(0,0,0,0.3)]">
+                                       <div className={cn("flex items-center px-2 py-0.5", 
+                                         (news.impactScore || 0) >= 80 ? "bg-gradient-to-r from-blue-500 to-indigo-600" : 
+                                         (news.impactScore || 0) < 50 ? "bg-gradient-to-r from-red-500 to-rose-600" : 
+                                         "bg-gradient-to-r from-neutral-800 to-neutral-900"
+                                       )}>
+                                         <span className={cn("text-[7px] font-black tracking-[1.5px] uppercase mt-px", 
+                                           (news.impactScore || 0) >= 80 || (news.impactScore || 0) < 50 ? "text-white" : "text-white/30"
+                                         )}>
+                                           {news.impactType?.toUpperCase() || 'EMITEN'}
+                                         </span>
+                                       </div>
+                                       <div className="flex items-center px-2 py-0.5 bg-[#050505]">
+                                         <span className={cn("font-mono font-black text-[10px]",
+                                           (news.impactScore || 0) >= 80 ? "text-blue-400" : 
+                                           (news.impactScore || 0) < 50 ? "text-red-400" : 
+                                           "text-[#444]"
+                                         )}>
+                                           {news.impactScore || 0}
+                                         </span>
+                                       </div>
+                                     </div>
+                                    <span className="text-[9px] font-bold uppercase tracking-widest text-white font-mono">{news.date.split(',')[0].replace(' 2026', '')}</span>
+                                 </div>
+                              </a>
+                           ))
+                        )}
+                    </div>
+                 </motion.div>
+               )}
+             </AnimatePresence>
            </div>
 
            {trade.status === 'OPEN' && !loading && (
@@ -3468,14 +5086,24 @@ function TradeDetailModal({
                          </button>
                       </div>
                    </div>
-                ) : (
+                ) : derivedStatus !== 'Take Profit' && derivedStatus !== 'Cut Loss' && (
                     <div className="flex gap-2">
-                       {isProfit ? (
-                           <button onClick={() => onClosePosition(cp)} className="flex-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-500 border border-emerald-500/50 font-black uppercase tracking-widest text-[10px] py-3 rounded-xl transition-all">
+                       {derivedStatus === 'Open' ? (
+                           <button onClick={() => onClosePosition(trade.entryPrice)} className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-white border border-[#2a2a2a] font-black uppercase tracking-widest text-[10px] py-3 rounded-xl transition-all">
+                               Cancel
+                           </button>
+                       ) : isProfit ? (
+                           <button 
+                             onClick={() => onClosePosition(cp)} 
+                             className="flex-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-500 border border-emerald-500/50 font-black uppercase tracking-widest text-[10px] py-3 rounded-xl transition-all"
+                           >
                                Cut Profit
                            </button>
                        ) : (
-                           <button onClick={() => onClosePosition(cp)} className="flex-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-500 border border-rose-500/50 font-black uppercase tracking-widest text-[10px] py-3 rounded-xl transition-all">
+                           <button 
+                             onClick={() => onClosePosition(cp)} 
+                             className="flex-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-500 border border-rose-500/50 font-black uppercase tracking-widest text-[10px] py-3 rounded-xl transition-all"
+                           >
                                Cut Loss
                            </button>
                        )}

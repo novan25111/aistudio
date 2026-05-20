@@ -1,0 +1,17 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  idx-analysis-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: idx-analysis-container
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      # Masukkan GEMINI_API_KEY Anda di sini atau gunakan file/environment variable lokal di Mac mini
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    restart: always
