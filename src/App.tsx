@@ -2783,8 +2783,8 @@ function ProfileView({
           </div>
 
           <div className="bg-[#050505] p-6 rounded-2xl border border-[#1a1a1a]">
-             <h4 className="text-[10px] font-black text-white uppercase tracking-[1.5px] mb-3">Cara Konfigurasi (Docker / Local):</h4>
-             <p className="text-xs text-[#aaa] leading-relaxed mb-4">Tambahkan variabel lingkungan berikut ke dalam file <code className="text-[var(--color-gold)] font-mono">.env</code> lokal Anda atau set up pada parameter runner kontainer Docker Mac mini Anda:</p>
+             <h4 className="text-[10px] font-black text-white uppercase tracking-[1.5px] mb-3">Cara Konfigurasi (Lokal / PC):</h4>
+             <p className="text-xs text-[#aaa] leading-relaxed mb-4">Buat atau edit file bernama <code className="text-[var(--color-gold)] font-mono">.env</code> di folder root project Anda, lalu tambahkan variabel lingkungan berikut sesuai konfigurasi PostgreSQL lokal Anda:</p>
              <pre className="bg-[#000] p-4 rounded-xl text-[11px] font-mono text-emerald-400 border border-[#222] select-all overflow-x-auto whitespace-pre leading-normal">
 {`# File .env (PostgreSQL Config)
 DATABASE_URL="postgresql://user:password@host:5432/dbname"
