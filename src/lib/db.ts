@@ -42,9 +42,12 @@ export function getDbPool(): pg.Pool | null {
   }
 
   try {
+    const isLocalhost = poolConfig.host === 'localhost' || poolConfig.host === '127.0.0.1' || (poolConfig.connectionString && poolConfig.connectionString.includes('localhost'));
+    const requireSsl = process.env.PGSSLMODE === 'require' || (!isLocalhost && process.env.PGSSLMODE !== 'disable');
+
     pool = new Pool({
       ...poolConfig,
-      ssl: process.env.PGSSLMODE === 'require' ? { rejectUnauthorized: false } : undefined,
+      ssl: requireSsl ? { rejectUnauthorized: false } : undefined,
       connectionTimeoutMillis: 5000, // Fail fast (5s timeout)
     });
 
@@ -186,20 +189,26 @@ export async function getNewsFromDb(limit: number = 80): Promise<any[] | null> {
       [limit]
     );
     
-    return rows.map(r => ({
-      id: r.id,
-      title: r.title,
-      source: r.source,
-      sourceType: r.source_type,
-      category: r.category,
-      url: r.url,
-      summary: r.summary,
-      date: r.date,
-      pubDateStr: r.pub_date_str,
-      impactType: r.impact_type,
-      impactScore: r.impact_score,
-      impactedSectors: typeof r.impacted_sectors === 'string' ? JSON.parse(r.impacted_sectors) : r.impacted_sectors
-    }));
+    return rows.map(r => {
+      let sourceType = r.source_type;
+      if (r.source === 'IDX' || r.source === 'KSEI') {
+        sourceType = 'Announcement';
+      }
+      return {
+        id: r.id,
+        title: r.title,
+        source: r.source,
+        sourceType: sourceType,
+        category: r.category,
+        url: r.url,
+        summary: r.summary,
+        date: r.date,
+        pubDateStr: r.pub_date_str,
+        impactType: r.impact_type,
+        impactScore: r.impact_score,
+        impactedSectors: typeof r.impacted_sectors === 'string' ? JSON.parse(r.impacted_sectors) : r.impacted_sectors
+      };
+    });
   } catch (err: any) {
     console.warn("⚠️ Failed to read news from PostgreSQL, falling back to real-time parser:", err.message);
     return null;

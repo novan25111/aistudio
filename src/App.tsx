@@ -396,7 +396,7 @@ const MOCK_NEWS_DATA: NewsItem[] = [
     id: "n2",
     title: "BBCA Jadwalkan Pembagian Dividen Tunai Final Rp 150/Saham.",
     source: "KSEI",
-    sourceType: "Otoritas",
+    sourceType: "Announcement",
     url: "https://www.ksei.co.id/",
     summary:
       "PT Bank Central Asia Tbk (BBCA) menjadwalkan pembagian dividen tunai tahun buku 2025. Cum dividen di pasar reguler ditetapkan minggu depan, menjadi pendorong sentimen bullish pada saham-saham perbankan big caps.",
@@ -1719,7 +1719,7 @@ export default function App() {
                           transition={{ duration: 0.15 }}
                           className="absolute right-0 top-full mt-2.5 w-[200px] z-50 bg-[#0d0d0d] border border-[#222] rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] p-1.5 flex flex-col gap-0.5"
                         >
-                          {["Semua", "Otoritas", "Media Lokal", "Media Global", "Sentimen Komunitas"].map((type) => (
+                          {["Semua", "Announcement", "Otoritas", "Media Lokal", "Media Global", "Sentimen Komunitas"].map((type) => (
                             <button
                               key={type}
                               onClick={() => {
@@ -2759,47 +2759,26 @@ function ProfileView({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="space-y-4">
-             <div className="bg-[#050505] p-5 rounded-2xl border border-[#1a1a1a] space-y-3">
-                <span className="block text-[9px] font-black text-[#555] uppercase tracking-[1.5px]">Koneksi Server</span>
-                <div className="flex items-center justify-between text-xs font-semibold text-[#aaa]">
-                   <span>Host:</span>
-                   <span className="font-mono text-white select-all">{dbStatus?.host || 'N/A'}</span>
-                </div>
-                <div className="flex items-center justify-between text-xs font-semibold text-[#aaa]">
-                   <span>Database Name:</span>
-                   <span className="font-mono text-white select-all">{dbStatus?.database || 'N/A'}</span>
-                </div>
-                <div className="flex items-center justify-between text-xs font-semibold text-[#aaa]">
-                   <span>Configuration Status:</span>
-                   <span className="font-mono text-yellow-500">{dbStatus?.url || 'Checking...'}</span>
-                </div>
-             </div>
+           <div className="bg-[#050505] p-5 rounded-2xl border border-[#1a1a1a] space-y-3">
+              <span className="block text-[9px] font-black text-[#555] uppercase tracking-[1.5px]">Koneksi Server</span>
+              <div className="flex items-center justify-between text-xs font-semibold text-[#aaa]">
+                 <span>Host:</span>
+                 <span className="font-mono text-white select-all">{dbStatus?.host || 'N/A'}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs font-semibold text-[#aaa]">
+                 <span>Database Name:</span>
+                 <span className="font-mono text-white select-all">{dbStatus?.database || 'N/A'}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs font-semibold text-[#aaa]">
+                 <span>Configuration Status:</span>
+                 <span className="font-mono text-yellow-500">{dbStatus?.url || 'Checking...'}</span>
+              </div>
+           </div>
 
-             <div className="bg-[#0b132b]/20 p-5 rounded-2xl border border-blue-900/30 text-xs leading-relaxed text-[#8a99ad]">
-                <h4 className="font-bold text-white uppercase tracking-wider mb-2 text-[10px]">💡 Catatan Integrasi</h4>
-                <p>Website akan secara otomatis membuat tabel <code className="text-blue-300 font-mono">news</code> dan <code className="text-blue-300 font-mono">trading_plans</code> ketika pertama kali terhubung. Jika database tidak tersambung, website secara cerdas akan langsung beralih ke engine in-memory dan parsing realtime gratis agar sistem tetap beroperasi 100%.</p>
-             </div>
-          </div>
-
-          <div className="bg-[#050505] p-6 rounded-2xl border border-[#1a1a1a]">
-             <h4 className="text-[10px] font-black text-white uppercase tracking-[1.5px] mb-3">Cara Konfigurasi (Lokal / PC):</h4>
-             <p className="text-xs text-[#aaa] leading-relaxed mb-4">Buat file baru bernama <code className="text-[var(--color-gold)] font-mono">.env</code> di folder root project Anda (bukan mengedit <code className="text-[#aaa] font-mono">.env.example</code>, melainkan membuat file baru/duplikasi dengan nama <code className="text-[var(--color-gold)] font-mono">.env</code> saja), lalu isi dengan konfigurasi berikut:</p>
-             <pre className="bg-[#000] p-4 rounded-xl text-[11px] font-mono text-emerald-400 border border-[#222] select-all overflow-x-auto whitespace-pre leading-normal">
-{`PORT=3000
-NODE_ENV=development
-
-# API Key Gemini Anda (Ambil dari aistudio.google.com)
-GEMINI_API_KEY="AIzaSyAE8nH8tey2lPQIKmtsmiYmGrA2xtKRnnE"
-
-# Konfigurasi Database PostgreSQL Lokal
-PGHOST="localhost"
-PGPORT=5432
-PGUSER="Novan"
-PGPASSWORD="3motion@L"
-PGDATABASE="db_IHSG"`}
-             </pre>
-          </div>
+           <div className="bg-[#0b132b]/20 p-5 rounded-2xl border border-blue-900/30 text-xs leading-relaxed text-[#8a99ad] flex flex-col justify-center">
+              <h4 className="font-bold text-white uppercase tracking-wider mb-2 text-[10px]">💡 Catatan Integrasi</h4>
+              <p>Website akan secara otomatis membuat tabel <code className="text-blue-300 font-mono">news</code> dan <code className="text-blue-300 font-mono">trading_plans</code> ketika pertama kali terhubung. Jika database tidak tersambung, website secara cerdas akan langsung beralih ke engine in-memory dan parsing realtime gratis agar sistem tetap beroperasi 100%.</p>
+           </div>
         </div>
       </div>
 
@@ -3658,7 +3637,7 @@ function StockDetailModal({
                         className="absolute top-full mt-2 right-0 w-[200px] z-50 bg-[#0d0d0d] border border-[#222] rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] overflow-hidden"
                       >
                         <div className="flex flex-col">
-                          {["Semua", "Otoritas", "Media Lokal", "Media Global", "Sentimen Komunitas"].map((type) => (
+                          {["Semua", "Announcement", "Otoritas", "Media Lokal", "Media Global", "Sentimen Komunitas"].map((type) => (
                             <button
                               key={type}
                               onClick={() => {
@@ -3718,10 +3697,12 @@ function StockDetailModal({
                               <span className={cn(
                                 "flex items-center gap-1 rounded bg-[#1a1a1a] px-2 py-1 text-[10px] sm:text-[9px] font-bold uppercase tracking-[1px] whitespace-nowrap",
                                 news.sourceType === "Otoritas" ? "text-purple-400" :
+                                news.sourceType === "Announcement" ? "text-rose-400" :
                                 news.sourceType === "Media Lokal" ? "text-blue-400" :
                                 news.sourceType === "Media Global" ? "text-amber-400" : "text-emerald-400"
                               )}>
                                 {news.sourceType === "Otoritas" && <Building2 size={10} />}
+                                {news.sourceType === "Announcement" && <Building2 size={10} />}
                                 {news.sourceType === "Media Lokal" && <Newspaper size={10} />}
                                 {news.sourceType === "Media Global" && <Globe2 size={10} />}
                                 {news.sourceType === "Sentimen Komunitas" && <Users size={10} />}

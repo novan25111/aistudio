@@ -8,6 +8,7 @@ import * as cheerio from 'cheerio';
 import { VWAP, RSI, bullishengulfingpattern, EMA, ATR, MACD, BollingerBands } from 'technicalindicators';
 import { initializeDatabase, saveNewsToDb, getNewsFromDb, checkDbStatus } from './src/lib/db';
 import './src/cron/marketAnalyzer';
+import cron from 'node-cron';
 
 const YF = (yahooFinanceDefault as any).default || yahooFinanceDefault;
 const yahooFinance = new YF({
@@ -267,27 +268,30 @@ async function startServer() {
 
       const symbol = req.query.symbol ? String(req.query.symbol).split('.')[0].toUpperCase() : '';
       const name = req.query.name ? String(req.query.name) : '';
+      const forceFetch = req.query.forceFetch === 'true';
       
-      // Try to read news from PostgreSQL cache first if database is available and initialized
-      try {
-        const cachedNews = await getNewsFromDb(120);
-        if (cachedNews && cachedNews.length > 0) {
-          if (symbol) {
-            const symRegex = new RegExp(`\\b${symbol}\\b`, 'i');
-            const nameRegex = name ? new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i') : null;
-            const filtered = cachedNews.filter((item: any) => {
-              const text = (item.title + " " + item.summary).toLowerCase();
-              return symRegex.test(text) || (nameRegex && nameRegex.test(text));
-            });
-            if (filtered.length > 0) {
-              return res.json(filtered);
+      // Try to read news from PostgreSQL cache first if database is available and initialized, unless forceFetch is true
+      if (!forceFetch) {
+        try {
+          const cachedNews = await getNewsFromDb(250);
+          if (cachedNews && cachedNews.length > 0) {
+            if (symbol) {
+              const symRegex = new RegExp(`\\b${symbol}\\b`, 'i');
+              const nameRegex = name ? new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i') : null;
+              const filtered = cachedNews.filter((item: any) => {
+                const text = (item.title + " " + item.summary).toLowerCase();
+                return symRegex.test(text) || (nameRegex && nameRegex.test(text));
+              });
+              if (filtered.length > 0) {
+                return res.json(filtered);
+              }
+            } else {
+              return res.json(cachedNews.slice(0, 200));
             }
-          } else {
-            return res.json(cachedNews.slice(0, 80));
           }
+        } catch (cacheErr: any) {
+          console.warn("⚠️ PostgreSQL news cache reading failed, falling back to live fetch:", cacheErr.message);
         }
-      } catch (cacheErr: any) {
-        console.warn("⚠️ PostgreSQL news cache reading failed, falling back to live fetch:", cacheErr.message);
       }
 
       const parser = new Parser();
@@ -299,41 +303,43 @@ async function startServer() {
       const symRegex = symbol ? new RegExp(`\\b${symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i') : null;
 
       const allSourcesRaw = [
+        // Announcement
+        { name: 'IDX', url: `https://news.google.com/rss/search?q=site:idx.co.id+saham+OR+keterbukaan&hl=id&gl=ID&ceid=ID:id`, type: 'Announcement', weight: 1.5 },
+        { name: 'KSEI', url: `https://news.google.com/rss/search?q=site:ksei.co.id+pengumuman+OR+kustodian&hl=id&gl=ID&ceid=ID:id`, type: 'Announcement', weight: 1.5 },
         // 1. Otoritas
-        { name: 'IDX', url: `https://news.google.com/rss/search?q=site:idx.co.id+saham+OR+keterbukaan${symbolQuery}&hl=id&gl=ID&ceid=ID:id`, type: 'Otoritas', weight: 1.5 },
-        { name: 'Bank Indonesia', url: `https://news.google.com/rss/search?q=site:bi.go.id+moneter+OR+kebijakan${symbolQuery}&hl=id&gl=ID&ceid=ID:id`, type: 'Otoritas', weight: 1.5 },
-        { name: 'Otoritas Jasa Keuangan', url: `https://news.google.com/rss/search?q=site:ojk.go.id+ojk${symbolQuery}&hl=id&gl=ID&ceid=ID:id`, type: 'Otoritas', weight: 1.5 },
-        { name: 'Badan Pusat Statistik (BPS)', url: `https://news.google.com/rss/search?q=site:bps.go.id+ekonomi+OR+inflasi${symbolQuery}&hl=id&gl=ID&ceid=ID:id`, type: 'Otoritas', weight: 1.5 },
-        { name: 'Kementerian Keuangan', url: `https://news.google.com/rss/search?q=site:kemenkeu.go.id+APBN+OR+fiskal${symbolQuery}&hl=id&gl=ID&ceid=ID:id`, type: 'Otoritas', weight: 1.5 },
-        { name: 'Sekretariat Kabinet', url: `https://news.google.com/rss/search?q=site:setkab.go.id+regulasi+OR+ekonomi${symbolQuery}&hl=id&gl=ID&ceid=ID:id`, type: 'Otoritas', weight: 1.4 },
-        { name: 'InfoPublik', url: `https://news.google.com/rss/search?q=site:infopublik.id+ekonomi+OR+industri${symbolQuery}&hl=id&gl=ID&ceid=ID:id`, type: 'Otoritas', weight: 1.3 },
-        { name: 'Bappebti', url: `https://news.google.com/rss/search?q=site:bappebti.go.id+komoditas+OR+perdagangan${symbolQuery}&hl=id&gl=ID&ceid=ID:id`, type: 'Otoritas', weight: 1.4 },
-        { name: 'Kementerian Perdagangan', url: `https://news.google.com/rss/search?q=site:kemendag.go.id+ekspor+OR+impor+OR+perdagangan${symbolQuery}&hl=id&gl=ID&ceid=ID:id`, type: 'Otoritas', weight: 1.4 },
+        { name: 'Bank Indonesia', url: `https://news.google.com/rss/search?q=site:bi.go.id+moneter+OR+kebijakan&hl=id&gl=ID&ceid=ID:id`, type: 'Otoritas', weight: 1.5 },
+        { name: 'Otoritas Jasa Keuangan', url: `https://news.google.com/rss/search?q=site:ojk.go.id+ojk&hl=id&gl=ID&ceid=ID:id`, type: 'Otoritas', weight: 1.5 },
+        { name: 'Badan Pusat Statistik (BPS)', url: `https://news.google.com/rss/search?q=site:bps.go.id+ekonomi+OR+inflasi&hl=id&gl=ID&ceid=ID:id`, type: 'Otoritas', weight: 1.5 },
+        { name: 'Kementerian Keuangan', url: `https://news.google.com/rss/search?q=site:kemenkeu.go.id+APBN+OR+fiskal&hl=id&gl=ID&ceid=ID:id`, type: 'Otoritas', weight: 1.5 },
+        { name: 'Sekretariat Kabinet', url: `https://news.google.com/rss/search?q=site:setkab.go.id+regulasi+OR+ekonomi&hl=id&gl=ID&ceid=ID:id`, type: 'Otoritas', weight: 1.4 },
+        { name: 'InfoPublik', url: `https://news.google.com/rss/search?q=site:infopublik.id+ekonomi+OR+industri&hl=id&gl=ID&ceid=ID:id`, type: 'Otoritas', weight: 1.3 },
+        { name: 'Bappebti', url: `https://news.google.com/rss/search?q=site:bappebti.go.id+komoditas+OR+perdagangan&hl=id&gl=ID&ceid=ID:id`, type: 'Otoritas', weight: 1.4 },
+        { name: 'Kementerian Perdagangan', url: `https://news.google.com/rss/search?q=site:kemendag.go.id+ekspor+OR+impor+OR+perdagangan&hl=id&gl=ID&ceid=ID:id`, type: 'Otoritas', weight: 1.4 },
         // 2. Media Lokal
-        { name: 'CNBC Indonesia', url: symbol ? `https://news.google.com/rss/search?q=site:cnbcindonesia.com+${searchQueryPart}&hl=id&gl=ID&ceid=ID:id` : 'https://www.cnbcindonesia.com/market/rss', type: 'Media Lokal', weight: 1.2 },
-        { name: 'Bisnis.com', url: symbol ? `https://news.google.com/rss/search?q=site:bisnis.com+${searchQueryPart}&hl=id&gl=ID&ceid=ID:id` : `https://news.google.com/rss/search?q=site:bisnis.com+saham+OR+ihsg&hl=id&gl=ID&ceid=ID:id`, type: 'Media Lokal', weight: 1.1 },
-        { name: 'Kontan', url: symbol ? `https://news.google.com/rss/search?q=site:kontan.co.id+${searchQueryPart}&hl=id&gl=ID&ceid=ID:id` : `https://news.google.com/rss/search?q=site:kontan.co.id+saham+OR+ihsg&hl=id&gl=ID&ceid=ID:id`, type: 'Media Lokal', weight: 1.1 },
-        { name: 'IDNFinancials', url: `https://news.google.com/rss/search?q=site:idnfinancials.com+saham${symbolQuery}&hl=id&gl=ID&ceid=ID:id`, type: 'Media Lokal', weight: 1.1 },
-        { name: 'Bloomberg Technoz', url: `https://news.google.com/rss/search?q=site:bloombergtechnoz.com+saham${symbolQuery}&hl=id&gl=ID&ceid=ID:id`, type: 'Media Lokal', weight: 1.2 },
-        { name: 'Investor Daily', url: `https://news.google.com/rss/search?q=site:investor.id+saham+OR+korporasi${symbolQuery}&hl=id&gl=ID&ceid=ID:id`, type: 'Media Lokal', weight: 1.1 },
-        { name: 'CNN Indonesia', url: `https://news.google.com/rss/search?q=site:cnnindonesia.com/ekonomi+saham${symbolQuery}&hl=id&gl=ID&ceid=ID:id`, type: 'Media Lokal', weight: 1.1 },
-        { name: 'Antara News', url: `https://news.google.com/rss/search?q=site:antaranews.com+saham${symbolQuery}&hl=id&gl=ID&ceid=ID:id`, type: 'Media Lokal', weight: 1.1 },
-        { name: 'Katadata', url: `https://news.google.com/rss/search?q=site:katadata.co.id+saham+OR+ekonomi${symbolQuery}&hl=id&gl=ID&ceid=ID:id`, type: 'Media Lokal', weight: 1.2 },
+        { name: 'CNBC Indonesia', url: 'https://www.cnbcindonesia.com/market/rss', type: 'Media Lokal', weight: 1.2 },
+        { name: 'Bisnis.com', url: `https://news.google.com/rss/search?q=site:bisnis.com+saham+OR+ihsg&hl=id&gl=ID&ceid=ID:id`, type: 'Media Lokal', weight: 1.1 },
+        { name: 'Kontan', url: `https://news.google.com/rss/search?q=site:kontan.co.id+saham+OR+ihsg&hl=id&gl=ID&ceid=ID:id`, type: 'Media Lokal', weight: 1.1 },
+        { name: 'IDNFinancials', url: `https://news.google.com/rss/search?q=site:idnfinancials.com+saham&hl=id&gl=ID&ceid=ID:id`, type: 'Media Lokal', weight: 1.1 },
+        { name: 'Bloomberg Technoz', url: `https://news.google.com/rss/search?q=site:bloombergtechnoz.com+saham&hl=id&gl=ID&ceid=ID:id`, type: 'Media Lokal', weight: 1.2 },
+        { name: 'Investor Daily', url: `https://news.google.com/rss/search?q=site:investor.id+saham+OR+korporasi&hl=id&gl=ID&ceid=ID:id`, type: 'Media Lokal', weight: 1.1 },
+        { name: 'CNN Indonesia', url: `https://news.google.com/rss/search?q=site:cnnindonesia.com/ekonomi+saham&hl=id&gl=ID&ceid=ID:id`, type: 'Media Lokal', weight: 1.1 },
+        { name: 'Antara News', url: `https://news.google.com/rss/search?q=site:antaranews.com+saham&hl=id&gl=ID&ceid=ID:id`, type: 'Media Lokal', weight: 1.1 },
+        { name: 'Katadata', url: `https://news.google.com/rss/search?q=site:katadata.co.id+saham+OR+ekonomi&hl=id&gl=ID&ceid=ID:id`, type: 'Media Lokal', weight: 1.2 },
         // 3. Media Global
-        { name: 'Reuters', url: `https://news.google.com/rss/search?q=site:reuters.com+stock+market${symbolQuery}&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.3 },
-        { name: 'Bloomberg', url: `https://news.google.com/rss/search?q=site:bloomberg.com+market${symbolQuery}&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.3 },
-        { name: 'AP News', url: `https://news.google.com/rss/search?q=site:apnews.com+business+OR+finance+OR+market${symbolQuery}&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.2 },
-        { name: 'BBC News', url: `https://news.google.com/rss/search?q=site:bbc.com/news+business+OR+market${symbolQuery}&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.2 },
-        { name: 'WSJ', url: `https://news.google.com/rss/search?q=site:wsj.com+finance+OR+market${symbolQuery}&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.3 },
-        { name: 'Financial Times', url: `https://news.google.com/rss/search?q=site:ft.com+finance+OR+market${symbolQuery}&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.3 },
-        { name: 'NY Times', url: `https://news.google.com/rss/search?q=site:nytimes.com+business+OR+economy${symbolQuery}&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.2 },
-        { name: 'The Guardian', url: `https://news.google.com/rss/search?q=site:theguardian.com+business+OR+economy${symbolQuery}&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.2 },
-        { name: 'Deutsche Welle (DW)', url: `https://news.google.com/rss/search?q=site:dw.com+business+OR+economy${symbolQuery}&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.2 },
+        { name: 'Reuters', url: `https://news.google.com/rss/search?q=site:reuters.com+stock+market&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.3 },
+        { name: 'Bloomberg', url: `https://news.google.com/rss/search?q=site:bloomberg.com+market&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.3 },
+        { name: 'AP News', url: `https://news.google.com/rss/search?q=site:apnews.com+business+OR+finance+OR+market&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.2 },
+        { name: 'BBC News', url: `https://news.google.com/rss/search?q=site:bbc.com/news+business+OR+market&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.2 },
+        { name: 'WSJ', url: `https://news.google.com/rss/search?q=site:wsj.com+finance+OR+market&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.3 },
+        { name: 'Financial Times', url: `https://news.google.com/rss/search?q=site:ft.com+finance+OR+market&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.3 },
+        { name: 'NY Times', url: `https://news.google.com/rss/search?q=site:nytimes.com+business+OR+economy&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.2 },
+        { name: 'The Guardian', url: `https://news.google.com/rss/search?q=site:theguardian.com+business+OR+economy&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.2 },
+        { name: 'Deutsche Welle (DW)', url: `https://news.google.com/rss/search?q=site:dw.com+business+OR+economy&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.2 },
         // 4. Media Sektoral
-        { name: 'Dunia Energi', url: `https://news.google.com/rss/search?q=site:dunia-energi.com+migas+OR+batu+bara${symbolQuery}&hl=id&gl=ID&ceid=ID:id`, type: 'Media Sektoral', weight: 1.1 },
+        { name: 'Dunia Energi', url: `https://news.google.com/rss/search?q=site:dunia-energi.com+migas+OR+batu+bara&hl=id&gl=ID&ceid=ID:id`, type: 'Media Sektoral', weight: 1.1 },
         // 5. Sentimen Komunitas
-        { name: 'Stockbit Disc', url: `https://news.google.com/rss/search?q=site:stockbit.com+saham+OR+ritel+OR+forum+OR+diskusi${symbolQuery}&hl=id&gl=ID&ceid=ID:id`, type: 'Sentimen Komunitas', weight: 1.1 },
-        { name: 'Kaskus Saham', url: `https://news.google.com/rss/search?q=grup+saham+OR+ritel+OR+rekomendasi+investor${symbolQuery}&hl=id&gl=ID&ceid=ID:id`, type: 'Sentimen Komunitas', weight: 1.0 }
+        { name: 'Stockbit Disc', url: `https://news.google.com/rss/search?q=site:stockbit.com+saham+OR+ritel+OR+forum+OR+diskusi&hl=id&gl=ID&ceid=ID:id`, type: 'Sentimen Komunitas', weight: 1.1 },
+        { name: 'Kaskus Saham', url: `https://news.google.com/rss/search?q=grup+saham+OR+ritel+OR+rekomendasi+investor&hl=id&gl=ID&ceid=ID:id`, type: 'Sentimen Komunitas', weight: 1.0 }
       ];
 
       const allSources = allSourcesRaw.map(source => ({
@@ -473,7 +479,9 @@ async function startServer() {
         }
         
         // Pengecualian khusus: jika sumbernya dari media otoritas/global, beri toleransi lebih (mereka pasti akurat)
-        if (sourceType === 'Otoritas' || sourceType === 'Media Global') {
+        if (sourceType === 'Announcement') {
+            isRelevant = true;
+        } else if (sourceType === 'Otoritas' || sourceType === 'Media Global') {
             if (relevanceScore > -30) isRelevant = true; // Selalu relevan dari IDX/BI/BPS kecuali sangat negatif (gosip, dll)
         }
 
@@ -648,7 +656,7 @@ async function startServer() {
         
         // Strip out trailing publication names to keep it clean
         let cleanTitle = item.title || "";
-        cleanTitle = cleanTitle.replace(/\s*[-|]\s*(CNBC Indonesia|Bisnis\.com|Kontan|Reuters|Bloomberg|Yahoo Finance|IDX|Bank Indonesia|Otoritas Jasa Keuangan|BPS|Bappebti|InfoPublik|Kementerian Keuangan|Sekretariat Kabinet|Kementerian Perdagangan|Katadata|Investor Daily|Bloomberg Technoz|CNN Indonesia|Antara News|BBC News|WSJ|Financial Times|NY Times|The Guardian|Deutsche Welle|Dunia Energi)\s*/gi, "");
+        cleanTitle = cleanTitle.replace(/\s*[-|]\s*(CNBC Indonesia|Bisnis\.com|Kontan|Reuters|Bloomberg|Yahoo Finance|IDX|KSEI|Bank Indonesia|Otoritas Jasa Keuangan|BPS|Bappebti|InfoPublik|Kementerian Keuangan|Sekretariat Kabinet|Kementerian Perdagangan|Katadata|Investor Daily|Bloomberg Technoz|CNN Indonesia|Antara News|BBC News|WSJ|Financial Times|NY Times|The Guardian|Deutsche Welle|Dunia Energi)\s*/gi, "");
 
         const communityPostTemplates = [
           `Bagaimana tanggapan forum mengenai kabar ini? Apakah dampaknya bakal bullish jangka menengah?`,
@@ -687,13 +695,23 @@ async function startServer() {
         new Date(b.pubDateStr || 0).getTime() - new Date(a.pubDateStr || 0).getTime()
       );
 
-      const responseNewsList = sortedNews.slice(0, 80);
+      const responseNewsList = sortedNews.slice(0, 300);
       
       // Save newly fetched news into PostgreSQL for cache
       if (checkDbStatus()) {
         saveNewsToDb(responseNewsList).catch((err) => {
           console.warn("⚠️ Background news caching failed:", err.message);
         });
+      }
+
+      if (symbol) {
+        const symRegex = new RegExp(`\\b${symbol}\\b`, 'i');
+        const nameRegex = name ? new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i') : null;
+        const filtered = responseNewsList.filter((item: any) => {
+          const text = (item.title + " " + item.summary).toLowerCase();
+          return symRegex.test(text) || (nameRegex && nameRegex.test(text));
+        });
+        return res.json(filtered);
       }
 
       res.json(responseNewsList);
@@ -706,7 +724,7 @@ async function startServer() {
   app.get('/api/db-status', (req, res) => {
     res.json({
       connected: checkDbStatus(),
-      url: process.env.DATABASE_URL ? 'Configured' : 'Not configured / Fallback',
+      url: process.env.DATABASE_URL ? 'Configured (DATABASE_URL)' : (checkDbStatus() ? 'Configured (Discrete Env)' : 'Not configured / Fallback'),
       host: process.env.PGHOST || 'localhost',
       database: process.env.PGDATABASE || 'postgres',
     });
@@ -1448,6 +1466,20 @@ async function startServer() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  // Cron job: Fetch and cache global news every 10 minutes
+  cron.schedule('*/10 * * * *', async () => {
+    try {
+      console.log("Mengeksekusi cron job: Update berita general ke database...");
+      // Panggil endpoint secara internal tanpa symbol dengan param forceFetch=true untuk skip check db
+      await axios.get(`http://127.0.0.1:${PORT}/api/news?forceFetch=true`, {
+        timeout: 60000 // 1 min timeout
+      });
+      console.log("Cron job berhasil update data berita.");
+    } catch (err: any) {
+      console.error("Cron job error update data berita:", err.message);
+    }
+  });
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
