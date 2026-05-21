@@ -2656,6 +2656,17 @@ function ProfileView({
   totalCapital: number;
   setTotalCapital: (val: number) => void; 
 }) {
+  const [dbStatus, setDbStatus] = useState<{ connected: boolean; url: string; host: string; database: string } | null>(null);
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      fetch('/api/db-status')
+        .then(res => res.json())
+        .then(data => setDbStatus(data))
+        .catch(() => setDbStatus({ connected: false, url: 'Fail', host: 'N/A', database: 'N/A' }));
+    }
+  }, [isLoggedIn]);
+
   if (!isLoggedIn) {
     return (
       <div className="py-20 text-center animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -2686,7 +2697,7 @@ function ProfileView({
                  <div className="bg-[#050505] p-4 rounded-xl border border-[#1a1a1a]">
                     <span className="block text-[8px] font-black text-[#555] uppercase tracking-widest mb-1">Username</span>
                     <span className="text-sm font-bold text-white">admin</span>
-                 </div>
+                  </div>
                  <div className="bg-[#050505] p-4 rounded-xl border border-[#1a1a1a]">
                     <span className="block text-[8px] font-black text-[#555] uppercase tracking-widest mb-1">Status</span>
                     <span className="text-sm font-bold text-emerald-500 uppercase tracking-widest">Authorized</span>
@@ -2713,6 +2724,80 @@ function ProfileView({
              <span className="text-sm font-black text-white uppercase tracking-tighter">{item.value}</span>
           </div>
         ))}
+      </div>
+
+      {/* PostgreSQL Status Card */}
+      <div className="p-8 rounded-3xl border border-[#2a2a2a] bg-[#0d0d0d] shadow-2xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-1/3 h-full bg-gradient-to-l from-blue-500/5 to-transparent pointer-events-none"></div>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-6">
+          <div>
+            <h3 className="text-sm font-black text-white uppercase tracking-wider mb-2 flex items-center gap-2">
+              <Box size={16} className="text-blue-400" />
+              PostgreSQL Database Integration
+            </h3>
+            <p className="text-[#888] text-xs">Integrasi ke database PostgreSQL lokal atau Cloud Anda untuk persistence data historis (news cache, trade plans).</p>
+          </div>
+          <div>
+            {dbStatus ? (
+              dbStatus.connected ? (
+                <span className="inline-flex items-center px-4 py-2 rounded-full text-xs font-black bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 uppercase tracking-widest">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 mr-2 animate-ping"></span>
+                  CONNECTED
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-4 py-2 rounded-full text-xs font-black bg-rose-500/10 border border-rose-500/30 text-rose-400 uppercase tracking-widest">
+                  <span className="w-2 h-2 rounded-full bg-rose-500 mr-2"></span>
+                  DISCONNECTED (FALLBACK ACTIVE)
+                </span>
+              )
+            ) : (
+              <span className="inline-flex items-center px-4 py-2 rounded-full text-xs font-black bg-[#151515] text-[#555] uppercase tracking-widest">
+                Checking connection...
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-4">
+             <div className="bg-[#050505] p-5 rounded-2xl border border-[#1a1a1a] space-y-3">
+                <span className="block text-[9px] font-black text-[#555] uppercase tracking-[1.5px]">Koneksi Server</span>
+                <div className="flex items-center justify-between text-xs font-semibold text-[#aaa]">
+                   <span>Host:</span>
+                   <span className="font-mono text-white select-all">{dbStatus?.host || 'N/A'}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs font-semibold text-[#aaa]">
+                   <span>Database Name:</span>
+                   <span className="font-mono text-white select-all">{dbStatus?.database || 'N/A'}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs font-semibold text-[#aaa]">
+                   <span>Configuration Status:</span>
+                   <span className="font-mono text-yellow-500">{dbStatus?.url || 'Checking...'}</span>
+                </div>
+             </div>
+
+             <div className="bg-[#0b132b]/20 p-5 rounded-2xl border border-blue-900/30 text-xs leading-relaxed text-[#8a99ad]">
+                <h4 className="font-bold text-white uppercase tracking-wider mb-2 text-[10px]">💡 Catatan Integrasi</h4>
+                <p>Website akan secara otomatis membuat tabel <code className="text-blue-300 font-mono">news</code> dan <code className="text-blue-300 font-mono">trading_plans</code> ketika pertama kali terhubung. Jika database tidak tersambung, website secara cerdas akan langsung beralih ke engine in-memory dan parsing realtime gratis agar sistem tetap beroperasi 100%.</p>
+             </div>
+          </div>
+
+          <div className="bg-[#050505] p-6 rounded-2xl border border-[#1a1a1a]">
+             <h4 className="text-[10px] font-black text-white uppercase tracking-[1.5px] mb-3">Cara Konfigurasi (Docker / Local):</h4>
+             <p className="text-xs text-[#aaa] leading-relaxed mb-4">Tambahkan variabel lingkungan berikut ke dalam file <code className="text-[var(--color-gold)] font-mono">.env</code> lokal Anda atau set up pada parameter runner kontainer Docker Mac mini Anda:</p>
+             <pre className="bg-[#000] p-4 rounded-xl text-[11px] font-mono text-emerald-400 border border-[#222] select-all overflow-x-auto whitespace-pre leading-normal">
+{`# File .env (PostgreSQL Config)
+DATABASE_URL="postgresql://user:password@host:5432/dbname"
+
+# ATAU konfigurasi terpisah:
+PGHOST="ganti-dengan-ip-pc-anda"
+PGPORT=5432
+PGUSER="postgres"
+PGPASSWORD="password_anda"
+PGDATABASE="nama_db"`}
+             </pre>
+          </div>
+        </div>
       </div>
 
       <div className="p-8 rounded-3xl border border-[#2a2a2a] bg-[#0d0d0d] shadow-2xl relative overflow-hidden">

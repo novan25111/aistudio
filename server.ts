@@ -6,6 +6,7 @@ import yahooFinanceDefault from 'yahoo-finance2';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { VWAP, RSI, bullishengulfingpattern, EMA, ATR, MACD, BollingerBands } from 'technicalindicators';
+import { initializeDatabase, saveNewsToDb, getNewsFromDb, checkDbStatus } from './src/lib/db';
 import './src/cron/marketAnalyzer';
 
 const YF = (yahooFinanceDefault as any).default || yahooFinanceDefault;
@@ -76,6 +77,9 @@ async function fetchGoogleFinanceQuote(symbol: string) {
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  // Initialize PostgreSQL database with failsafe checks
+  await initializeDatabase();
 
   // --- NEW: Time Analysis API for Astro-Fib Calendar ---
   app.get('/api/time-analysis', async (req, res) => {
@@ -261,9 +265,32 @@ async function startServer() {
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
 
-      const parser = new Parser();
       const symbol = req.query.symbol ? String(req.query.symbol).split('.')[0].toUpperCase() : '';
       const name = req.query.name ? String(req.query.name) : '';
+      
+      // Try to read news from PostgreSQL cache first if database is available and initialized
+      try {
+        const cachedNews = await getNewsFromDb(120);
+        if (cachedNews && cachedNews.length > 0) {
+          if (symbol) {
+            const symRegex = new RegExp(`\\b${symbol}\\b`, 'i');
+            const nameRegex = name ? new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i') : null;
+            const filtered = cachedNews.filter((item: any) => {
+              const text = (item.title + " " + item.summary).toLowerCase();
+              return symRegex.test(text) || (nameRegex && nameRegex.test(text));
+            });
+            if (filtered.length > 0) {
+              return res.json(filtered);
+            }
+          } else {
+            return res.json(cachedNews.slice(0, 80));
+          }
+        }
+      } catch (cacheErr: any) {
+        console.warn("⚠️ PostgreSQL news cache reading failed, falling back to live fetch:", cacheErr.message);
+      }
+
+      const parser = new Parser();
       
       // Construct a better search query for Indonesian stocks
       // BBCA -> "BBCA" OR "Bank Central Asia"
@@ -660,11 +687,29 @@ async function startServer() {
         new Date(b.pubDateStr || 0).getTime() - new Date(a.pubDateStr || 0).getTime()
       );
 
-      res.json(sortedNews.slice(0, 80));
+      const responseNewsList = sortedNews.slice(0, 80);
+      
+      // Save newly fetched news into PostgreSQL for cache
+      if (checkDbStatus()) {
+        saveNewsToDb(responseNewsList).catch((err) => {
+          console.warn("⚠️ Background news caching failed:", err.message);
+        });
+      }
+
+      res.json(responseNewsList);
 
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
+  });
+
+  app.get('/api/db-status', (req, res) => {
+    res.json({
+      connected: checkDbStatus(),
+      url: process.env.DATABASE_URL ? 'Configured' : 'Not configured / Fallback',
+      host: process.env.PGHOST || 'localhost',
+      database: process.env.PGDATABASE || 'postgres',
+    });
   });
 
   app.get('/api/broker-summary/:symbol', async (req, res) => {

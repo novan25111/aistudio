@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import { ATR } from 'technicalindicators';
+import { saveTradingPlanToDb } from '../lib/db';
 // import { fetchMarketData } from '../services/apiService'; 
-// import { updateDatabase } from '../services/dbService';
 
 // Mock: Daftar saham yang dipantau sistem Anda
 const WATCHLIST = ['IDX:BBCA', 'IDX:BREN', 'IDX:AMMN', 'BINANCE:BTCUSDT'];
@@ -94,7 +94,7 @@ async function runMarketAnalysisEngine() {
             const analysisResult = await processTechnicalProtocol(symbol, mockCandles);
 
             // 3. Simpan ke Database
-            // await updateDatabase('trading_plans', analysisResult);
+            await saveTradingPlanToDb(analysisResult);
             
         } catch (error) {
             // Silently handle analysis errors

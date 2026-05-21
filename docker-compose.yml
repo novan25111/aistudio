@@ -14,4 +14,11 @@ services:
       - PORT=3000
       # Masukkan GEMINI_API_KEY Anda di sini atau gunakan file/environment variable lokal di Mac mini
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      # PostgreSQL Database parameters (opsional jika diletakkan di .env lokal)
+      - DATABASE_URL=${DATABASE_URL}
+      - PGHOST=${PGHOST}
+      - PGPORT=${PGPORT}
+      - PGUSER=${PGUSER}
+      - PGPASSWORD=${PGPASSWORD}
+      - PGDATABASE=${PGDATABASE}
     restart: always
