@@ -20,7 +20,7 @@ export interface NewsItem {
   id: string;
   title: string;
   source: string;
-  sourceType?: 'Announcement' | 'Otoritas' | 'Media Lokal' | 'Media Global' | 'Sentimen Komunitas';
+  sourceType?: 'Otoritas' | 'Media Lokal' | 'Media Global' | 'Sentimen Komunitas';
   url: string;
   summary: string;
   date: string;
