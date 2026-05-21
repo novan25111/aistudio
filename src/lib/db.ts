@@ -5,9 +5,23 @@ dotenv.config();
 
 const { Pool } = pg;
 
-// Use DATABASE_URL if available, otherwise fallback to discrete params or connection string template
-const connectionString = process.env.DATABASE_URL || 
-  `postgresql://${process.env.PGUSER || 'postgres'}:${process.env.PGPASSWORD || ''}@${process.env.PGHOST || 'localhost'}:${process.env.PGPORT || 5432}/${process.env.PGDATABASE || 'postgres'}`;
+// Use discrete parameters option if available to prevent URL parsing errors with special chars (like '@') in password.
+// Otherwise fall back to DATABASE_URL.
+let poolConfig: any = {};
+
+if (process.env.PGHOST || process.env.PGUSER || process.env.PGPASSWORD || process.env.PGDATABASE) {
+  poolConfig = {
+    host: process.env.PGHOST || 'localhost',
+    port: process.env.PGPORT ? parseInt(process.env.PGPORT) : 5432,
+    user: process.env.PGUSER || 'postgres',
+    password: process.env.PGPASSWORD || '',
+    database: process.env.PGDATABASE || 'postgres',
+  };
+} else if (process.env.DATABASE_URL) {
+  poolConfig = {
+    connectionString: process.env.DATABASE_URL,
+  };
+}
 
 let pool: pg.Pool | null = null;
 let isDbConnected = false;
@@ -29,7 +43,7 @@ export function getDbPool(): pg.Pool | null {
 
   try {
     pool = new Pool({
-      connectionString,
+      ...poolConfig,
       ssl: process.env.PGSSLMODE === 'require' ? { rejectUnauthorized: false } : undefined,
       connectionTimeoutMillis: 5000, // Fail fast (5s timeout)
     });
