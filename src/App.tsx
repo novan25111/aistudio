@@ -601,6 +601,7 @@ export default function App() {
   const [isPortfolioFilterOpen, setIsPortfolioFilterOpen] = useState(false);
   const [portfolioStatusFilter, setPortfolioStatusFilter] = useState<'ALL' | 'OPEN' | 'CLOSED'>('ALL');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [loggedInUser, setLoggedInUser] = useState<{username: string, role: string} | null>(null);
   const [totalCapital, setTotalCapital] = useState(100000000);
 
   const [stocks, setStocks] = useState<RecommendedStock[]>(
@@ -2367,7 +2368,7 @@ export default function App() {
               </div>
             </div>
           ) : (
-            <LoginPage onLoginSuccess={() => setIsLoggedIn(true)} />
+            <LoginPage onLoginSuccess={(user) => { setIsLoggedIn(true); setLoggedInUser(user); }} />
           )
         )}
 
@@ -2570,10 +2571,12 @@ export default function App() {
         {activeTab === "Profile" && (
           <ProfileView 
             isLoggedIn={isLoggedIn} 
+            loggedInUser={loggedInUser}
             totalCapital={totalCapital}
             setTotalCapital={setTotalCapital}
             onLogout={() => {
               setIsLoggedIn(false);
+              setLoggedInUser(null);
               setActiveTab("Dashboard");
             }} 
           />
@@ -2598,17 +2601,33 @@ export default function App() {
   );
 }
 
-function LoginPage({ onLoginSuccess }: { onLoginSuccess: () => void }) {
+function LoginPage({ onLoginSuccess }: { onLoginSuccess: (user: any) => void }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (username === "admin" && password === "admin") {
-      onLoginSuccess();
-    } else {
+    setIsLoading(true);
+    setError(false);
+    
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+      if (data.success) {
+        onLoginSuccess(data.user);
+      } else {
+        setError(true);
+      }
+    } catch (err) {
       setError(true);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -2639,9 +2658,10 @@ function LoginPage({ onLoginSuccess }: { onLoginSuccess: () => void }) {
           </div>
           <button
             type="submit"
-            className="w-full bg-[var(--color-gold)] text-black font-black uppercase text-[10px] tracking-[2px] py-4 rounded-xl hover:bg-[var(--color-gold-hover)] transition-all active:scale-95"
+            disabled={isLoading}
+            className="w-full bg-[var(--color-gold)] text-black font-black uppercase text-[10px] tracking-[2px] py-4 rounded-xl hover:bg-[var(--color-gold-hover)] transition-all active:scale-95 disabled:opacity-50"
           >
-            Masuk Terminal
+            {isLoading ? "Authenticating..." : "Masuk Terminal"}
           </button>
           {error && <p className="text-rose-500 text-xs font-bold text-center mt-2">Username/Password Salah!</p>}
         </form>
@@ -2652,11 +2672,13 @@ function LoginPage({ onLoginSuccess }: { onLoginSuccess: () => void }) {
 
 function ProfileView({ 
   isLoggedIn, 
+  loggedInUser,
   onLogout,
   totalCapital,
   setTotalCapital
 }: { 
   isLoggedIn: boolean; 
+  loggedInUser: {username: string, role: string} | null;
   onLogout: () => void;
   totalCapital: number;
   setTotalCapital: (val: number) => void; 
@@ -2677,14 +2699,68 @@ function ProfileView({
   const [copiedKey, setCopiedKey] = useState(false);
   const [copiedCsr, setCopiedCsr] = useState(false);
 
+  // User Management State
+  const [users, setUsers] = useState<any[]>([]);
+  const [newUsername, setNewUsername] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [userError, setUserError] = useState<string | null>(null);
+
+  const fetchUsers = async () => {
+    if (loggedInUser?.role !== 'admin') return;
+    try {
+      const res = await fetch('/api/users');
+      if (res.ok) {
+        setUsers(await res.json());
+      }
+    } catch(err) {
+      console.error(err);
+    }
+  };
+
   useEffect(() => {
     if (isLoggedIn) {
       fetch('/api/db-status')
         .then(res => res.json())
         .then(data => setDbStatus(data))
         .catch(() => setDbStatus({ connected: false, url: 'Fail', host: 'N/A', database: 'N/A', logs: ["Gagal memuat log diagnosis koneksi dari backend."] }));
+      
+      fetchUsers();
     }
-  }, [isLoggedIn]);
+  }, [isLoggedIn, loggedInUser?.role]);
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setUserError(null);
+    try {
+      const res = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: newUsername, password: newPassword, role: 'user' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNewUsername("");
+        setNewPassword("");
+        fetchUsers();
+      } else {
+        setUserError(data.error);
+      }
+    } catch (err: any) {
+      setUserError(err.message);
+    }
+  };
+
+  const handleDeleteUser = async (username: string) => {
+    try {
+      const res = await fetch(`/api/users/${username}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        fetchUsers();
+      }
+    } catch (err: any) {
+      console.error(err);
+    }
+  };
 
   const handleGenerateCSR = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2778,6 +2854,65 @@ function ProfileView({
           </div>
         ))}
       </div>
+
+      {/* User Management for Admin */}
+      {loggedInUser?.role === 'admin' && (
+        <div className="p-8 rounded-3xl border border-[#2a2a2a] bg-[#0d0d0d] shadow-2xl relative overflow-hidden mb-8">
+          <div className="absolute top-0 right-0 w-1/3 h-full bg-gradient-to-l from-emerald-500/5 to-transparent pointer-events-none"></div>
+          <div className="mb-6">
+            <h3 className="text-sm font-black text-white uppercase tracking-wider mb-2 flex items-center gap-2">
+              <User size={16} className="text-emerald-400" />
+              User Management
+            </h3>
+            <p className="text-[#888] text-xs">Buat akun untuk user lain agar dapat mengakses dashboard terminal.</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div>
+              <form onSubmit={handleCreateUser} className="space-y-4 bg-[#050505] p-5 rounded-2xl border border-[#1a1a1a]">
+                 <h4 className="font-bold text-white uppercase tracking-wider mb-2 text-[10px]">Create New User</h4>
+                 <input 
+                    type="text" 
+                    placeholder="Username" 
+                    value={newUsername}
+                    onChange={(e) => setNewUsername(e.target.value)}
+                    className="w-full bg-[#111] border border-[#222] rounded-xl py-2 px-3 text-white text-xs outline-none"
+                    required
+                 />
+                 <input 
+                    type="password" 
+                    placeholder="Password" 
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full bg-[#111] border border-[#222] rounded-xl py-2 px-3 text-white text-xs outline-none"
+                    required
+                 />
+                 <button disabled={!newUsername || !newPassword} type="submit" className="w-full py-2 bg-emerald-600/20 text-emerald-500 font-black text-[10px] uppercase tracking-widest rounded-xl hover:bg-emerald-600/30 transition-all border border-emerald-600/30 disabled:opacity-50">Create User</button>
+                 {userError && <p className="text-rose-500 text-xs mt-2">{userError}</p>}
+              </form>
+            </div>
+
+            <div>
+              <h4 className="font-bold text-white uppercase tracking-wider mb-4 text-[10px]">Registered Users ({users.length})</h4>
+              <div className="space-y-3 max-h-[200px] overflow-y-auto pr-2">
+                {users.map(u => (
+                  <div key={u.id || u.username} className="flex items-center justify-between p-3 rounded-xl border border-[#1a1a1a] bg-[#050505]">
+                    <div>
+                      <span className="text-xs font-bold text-white">{u.username}</span>
+                      <span className="ml-2 text-[8px] uppercase tracking-widest bg-blue-900/40 text-blue-400 px-2 py-0.5 rounded-full">{u.role}</span>
+                    </div>
+                    {u.username !== 'admin' && (
+                      <button onClick={() => handleDeleteUser(u.username)} className="text-rose-400 hover:text-rose-300">
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* PostgreSQL Status Card */}
       <div className="p-8 rounded-3xl border border-[#2a2a2a] bg-[#0d0d0d] shadow-2xl relative overflow-hidden">

@@ -126,6 +126,25 @@ export async function initializeDatabase() {
       );
     `);
 
+    // Create Users table
+    logDbTrace("Verifying/creating 'users' table...");
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(100) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        role VARCHAR(50) DEFAULT 'user',
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    
+    // Seed default admin user
+    await client.query(`
+      INSERT INTO users (username, password, role) 
+      VALUES ('admin', '3motion@L', 'admin')
+      ON CONFLICT (username) DO NOTHING;
+    `);
+
     // Create Trading Plans / Market Analysis Table
     logDbTrace("Verifying/creating 'trading_plans' table...");
     await client.query(`
@@ -326,5 +345,92 @@ export async function getTradingPlansFromDb(symbol?: string, limit: number = 10)
   } catch (err: any) {
     console.warn("⚠️ Failed to read trading plans from PostgreSQL:", err.message);
     return null;
+  }
+}
+
+// In-memory fallback for users
+let inMemoryUsers: any[] = [
+  { id: 1, username: 'admin', password: '3motion@L', role: 'admin', created_at: new Date() }
+];
+
+export async function verifyUser(username: string, password: string): Promise<any | null> {
+  const activePool = getDbPool();
+  if (!activePool || !isDbConnected) {
+    const memUser = inMemoryUsers.find(u => u.username === username && u.password === password);
+    if (memUser) return memUser;
+    return null;
+  }
+  
+  try {
+    const { rows } = await activePool.query('SELECT * FROM users WHERE username = $1 AND password = $2', [username, password]);
+    if (rows.length > 0) return rows[0];
+    return null;
+  } catch (err) {
+    console.warn("⚠️ Failed to verify user DB:", err);
+    // Fallback if table doesn't exist yet but DB is supposedly connected
+    const memUser = inMemoryUsers.find(u => u.username === username && u.password === password);
+    if (memUser) return memUser;
+    return null;
+  }
+}
+
+export async function getUsers(): Promise<any[]> {
+  const activePool = getDbPool();
+  if (!activePool || !isDbConnected) {
+    return inMemoryUsers;
+  }
+
+  try {
+    const { rows } = await activePool.query('SELECT id, username, role, created_at FROM users ORDER BY created_at DESC');
+    return rows;
+  } catch (err) {
+    return inMemoryUsers;
+  }
+}
+
+export async function createUser(username: string, password: string, role: string = 'user'): Promise<boolean> {
+  const activePool = getDbPool();
+  if (!activePool || !isDbConnected) {
+    if (inMemoryUsers.find(u => u.username === username)) return false;
+    inMemoryUsers.push({
+      id: Date.now(),
+      username,
+      password,
+      role,
+      created_at: new Date()
+    });
+    return true;
+  }
+
+  try {
+    await activePool.query(
+      'INSERT INTO users (username, password, role) VALUES ($1, $2, $3)',
+      [username, password, role]
+    );
+    return true;
+  } catch (err) {
+    console.warn("⚠️ Failed to create user DB:", err);
+    return false;
+  }
+}
+
+export async function deleteUser(username: string): Promise<boolean> {
+  // Prevent deleting admin
+  if (username === 'admin') return false;
+
+  const activePool = getDbPool();
+  if (!activePool || !isDbConnected) {
+    const initialLen = inMemoryUsers.length;
+    inMemoryUsers = inMemoryUsers.filter(u => u.username !== username);
+    return inMemoryUsers.length < initialLen;
+  }
+
+  try {
+    const { rowCount } = await activePool.query('DELETE FROM users WHERE username = $1', [username]);
+    // The driver returns rowCount. We assert rowCount exists.
+    return (rowCount ?? 0) > 0;
+  } catch (err) {
+    console.warn("⚠️ Failed to delete user DB:", err);
+    return false;
   }
 }

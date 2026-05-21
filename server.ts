@@ -6,7 +6,7 @@ import yahooFinanceDefault from 'yahoo-finance2';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { VWAP, RSI, bullishengulfingpattern, EMA, ATR, MACD, BollingerBands } from 'technicalindicators';
-import { initializeDatabase, saveNewsToDb, getNewsFromDb, checkDbStatus, getDbLogs } from './src/lib/db';
+import { initializeDatabase, saveNewsToDb, getNewsFromDb, checkDbStatus, getDbLogs, verifyUser, getUsers, createUser, deleteUser } from './src/lib/db';
 import './src/cron/marketAnalyzer';
 import cron from 'node-cron';
 import { spawn } from 'child_process';
@@ -672,7 +672,7 @@ async function startServer() {
         new Date(b.pubDateStr || 0).getTime() - new Date(a.pubDateStr || 0).getTime()
       );
 
-      const responseNewsList = sortedNews.slice(0, 300);
+      const responseNewsList = sortedNews;
       
       // Save newly fetched news into PostgreSQL for cache
       if (checkDbStatus()) {
@@ -1540,6 +1540,59 @@ async function startServer() {
     } catch (e: any) {
       // Silently handle errors
       res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/login', express.json(), async (req, res) => {
+    try {
+      const { username, password } = req.body;
+      if (!username || !password) return res.status(400).json({ error: 'Username dan Password wajib diisi.' });
+      const user = await verifyUser(username, password);
+      if (user) {
+        res.json({ success: true, user: { username: user.username, role: user.role } });
+      } else {
+        res.status(401).json({ error: 'Username atau Password salah!' });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/users', async (req, res) => {
+    try {
+      const users = await getUsers();
+      res.json(users);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/users', express.json(), async (req, res) => {
+    try {
+      const { username, password, role } = req.body;
+      if (!username || !password) return res.status(400).json({ error: 'Username dan Password wajib diisi.' });
+      const success = await createUser(username, password, role || 'user');
+      if (success) {
+        res.json({ success: true });
+      } else {
+        res.status(400).json({ error: 'Berhasil, atau Username sudah terdaftar.' });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/users/:username', async (req, res) => {
+    try {
+      const { username } = req.params;
+      const success = await deleteUser(username);
+      if (success) {
+        res.json({ success: true });
+      } else {
+        res.status(400).json({ error: 'Gagal menghapus user.' });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 
