@@ -134,7 +134,7 @@ export function checkDbStatus(): boolean {
  */
 export async function saveNewsToDb(newsItems: any[]) {
   const activePool = getDbPool();
-  if (!activePool) return;
+  if (!activePool || !isDbConnected) return;
 
   try {
     const client = await activePool.connect();
@@ -217,7 +217,7 @@ export async function getNewsFromDb(limit: number = 80): Promise<any[] | null> {
  */
 export async function saveTradingPlanToDb(plan: any) {
   const activePool = getDbPool();
-  if (!activePool) return;
+  if (!activePool || !isDbConnected) return;
 
   try {
     const { symbol, lastPrice, volatility, score, levels } = plan;
