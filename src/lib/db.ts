@@ -1,9 +1,9 @@
+import 'dotenv/config';
 import pg from 'pg';
-import dotenv from 'dotenv';
-
-dotenv.config();
 
 const { Pool } = pg;
+
+const hasConfig = !!(process.env.DATABASE_URL || process.env.PGHOST || process.env.PGPASSWORD);
 
 // Use discrete parameters option if available to prevent URL parsing errors with special chars (like '@') in password.
 // Otherwise fall back to DATABASE_URL.
@@ -33,9 +33,6 @@ let isDbConnected = false;
 export function getDbPool(): pg.Pool | null {
   if (pool) return pool;
 
-  // Check if password or host is defined to avoid running default connections that will fail and print errors
-  const hasConfig = !!(process.env.DATABASE_URL || process.env.PGHOST || process.env.PGPASSWORD);
-  
   if (!hasConfig) {
     console.log("ℹ️ PostgreSQL environment variables not fully configured. Using mock/in-memory storage fallback.");
     return null;
@@ -119,8 +116,17 @@ export async function initializeDatabase() {
     client.release();
     console.log("🎉 PostgreSQL Database Tables validated & initialized successfully.");
   } catch (err: any) {
+    console.error("❌ DB_TRACE_ERROR:", err.message);
     console.warn("❌ Could not connect or run migrations on PostgreSQL server:", err.message);
-    console.warn("   Make sure your PostgreSQL server is active, credentials are correct, and accessible from this runtime.");
+    
+    if (err.code === 'ECONNREFUSED' && (err.address === '127.0.0.1' || err.address === '::1' || poolConfig.host === 'localhost')) {
+      console.warn("⚠️ IMPORTANT NOTE: You are running this app inside the AI Studio Cloud Environment, not on your local machine.");
+      console.warn("⚠️ The cloud container cannot connect to 'localhost' or '127.0.0.1' on your physical laptop.");
+      console.warn("⚠️ Solution 1: Use a cloud database (like Supabase, Neon, RDS) and update the DATABASE_URL.");
+      console.warn("⚠️ Solution 2: To use your local database, you must EXPORT this project (Download ZIP) and run 'npm install' then 'npm run dev' on your own machine.");
+    } else {
+      console.warn("   Make sure your PostgreSQL server is active, credentials are correct, and accessible from this runtime.");
+    }
     isDbConnected = false;
   }
 }
@@ -137,7 +143,7 @@ export function checkDbStatus(): boolean {
  */
 export async function saveNewsToDb(newsItems: any[]) {
   const activePool = getDbPool();
-  if (!activePool) return;
+  if (!activePool || !isDbConnected) return;
 
   try {
     const client = await activePool.connect();
@@ -220,7 +226,7 @@ export async function getNewsFromDb(limit: number = 80): Promise<any[] | null> {
  */
 export async function saveTradingPlanToDb(plan: any) {
   const activePool = getDbPool();
-  if (!activePool) return;
+  if (!activePool || !isDbConnected) return;
 
   try {
     const { symbol, lastPrice, volatility, score, levels } = plan;
