@@ -1,9 +1,35 @@
-import 'dotenv/config';
+import * as dotenv from 'dotenv';
+import * as path from 'path';
 import pg from 'pg';
+
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+console.log("CEK ISI DATABASE_URL:", process.env.DATABASE_URL ? "TERBACA" : "KOSONG");
 
 const { Pool } = pg;
 
 const hasConfig = !!(process.env.DATABASE_URL || process.env.PGHOST || process.env.PGPASSWORD);
+
+// Store DB trace logs in memory to display on UI
+const dbLogs: string[] = [];
+export function logDbTrace(msg: string) {
+  const timestamp = new Date().toLocaleTimeString('id-ID');
+  const entry = `[${timestamp}] ${msg}`;
+  dbLogs.push(entry);
+  console.log(`[DB_TRACE] ${msg}`);
+  if (dbLogs.length > 50) {
+    dbLogs.shift();
+  }
+}
+
+export function getDbLogs(): string[] {
+  // If empty, put an initialization message
+  if (dbLogs.length === 0) {
+    dbLogs.push(`[${new Date().toLocaleTimeString('id-ID')}] Database system started. Fallback storage is ready.`);
+  }
+  return dbLogs;
+}
+
+logDbTrace(`System initialized. Configuration: ${hasConfig ? "COMPLETE (PostgreSQL Configured)" : "INCOMPLETE (Fallback storage activated)"}`);
 
 // Use discrete parameters option if available to prevent URL parsing errors with special chars (like '@') in password.
 // Otherwise fall back to DATABASE_URL.
@@ -34,13 +60,15 @@ export function getDbPool(): pg.Pool | null {
   if (pool) return pool;
 
   if (!hasConfig) {
-    console.log("ℹ️ PostgreSQL environment variables not fully configured. Using mock/in-memory storage fallback.");
+    logDbTrace("ℹ️ PostgreSQL environment variables not fully configured. Using mock/in-memory storage fallback.");
     return null;
   }
 
   try {
     const isLocalhost = poolConfig.host === 'localhost' || poolConfig.host === '127.0.0.1' || (poolConfig.connectionString && poolConfig.connectionString.includes('localhost'));
     const requireSsl = process.env.PGSSLMODE === 'require' || (!isLocalhost && process.env.PGSSLMODE !== 'disable');
+
+    logDbTrace(`Initializing pool. Target Host: ${poolConfig.host || 'DATABASE_URL'}, Database: ${poolConfig.database || 'Unspecified'}, SSL requirement resolved to: ${requireSsl ? "YES (rejectUnauthorized: false)" : "NO"}`);
 
     pool = new Pool({
       ...poolConfig,
@@ -50,12 +78,12 @@ export function getDbPool(): pg.Pool | null {
 
     // Handle background pool errors
     pool.on('error', (err) => {
-      console.warn('⚡ PostgreSQL Pool Error:', err.message);
+      logDbTrace(`⚡ PostgreSQL Background Pool Error: ${err.message}`);
     });
 
     return pool;
   } catch (err: any) {
-    console.warn('❌ Failed to initialize PostgreSQL Pool:', err.message);
+    logDbTrace(`❌ Failed to initialize PostgreSQL Pool: ${err.message}`);
     pool = null;
     return null;
   }
@@ -65,18 +93,21 @@ export function getDbPool(): pg.Pool | null {
  * Test connections and initialize table structures
  */
 export async function initializeDatabase() {
+  logDbTrace("Starting database initialization...");
   const activePool = getDbPool();
   if (!activePool) {
-    console.log("⚠️ Database initialization skipped. Defaulting to standard operational mode.");
+    logDbTrace("⚠️ Database initialization skipped because no pool could be constructed (Config variables missing).");
     return;
   }
 
   try {
+    logDbTrace(`Attempting handshake with PostgreSQL server at ${poolConfig.host || 'DATABASE_URL_provided'}...`);
     const client = await activePool.connect();
-    console.log("✅ Successfully connected to PostgreSQL Database!");
+    logDbTrace("✅ Successfully connected to PostgreSQL Database!");
     isDbConnected = true;
 
     // Create News cache table
+    logDbTrace("Verifying/creating 'news' table...");
     await client.query(`
       CREATE TABLE IF NOT EXISTS news (
         id VARCHAR(100) PRIMARY KEY,
@@ -96,6 +127,7 @@ export async function initializeDatabase() {
     `);
 
     // Create Trading Plans / Market Analysis Table
+    logDbTrace("Verifying/creating 'trading_plans' table...");
     await client.query(`
       CREATE TABLE IF NOT EXISTS trading_plans (
         id SERIAL PRIMARY KEY,
@@ -114,18 +146,18 @@ export async function initializeDatabase() {
     `);
 
     client.release();
-    console.log("🎉 PostgreSQL Database Tables validated & initialized successfully.");
+    logDbTrace("🎉 PostgreSQL Database Tables validated & initialized successfully.");
   } catch (err: any) {
+    logDbTrace(`❌ Connection / Migration Handshake failed: ${err.message}`);
     console.error("❌ DB_TRACE_ERROR:", err.message);
-    console.warn("❌ Could not connect or run migrations on PostgreSQL server:", err.message);
     
     if (err.code === 'ECONNREFUSED' && (err.address === '127.0.0.1' || err.address === '::1' || poolConfig.host === 'localhost')) {
-      console.warn("⚠️ IMPORTANT NOTE: You are running this app inside the AI Studio Cloud Environment, not on your local machine.");
-      console.warn("⚠️ The cloud container cannot connect to 'localhost' or '127.0.0.1' on your physical laptop.");
-      console.warn("⚠️ Solution 1: Use a cloud database (like Supabase, Neon, RDS) and update the DATABASE_URL.");
-      console.warn("⚠️ Solution 2: To use your local database, you must EXPORT this project (Download ZIP) and run 'npm install' then 'npm run dev' on your own machine.");
+      logDbTrace("⚠️ DANGER / ECONNREFUSED DETECTED: You are running this app inside the AI Studio cloud sandbox!");
+      logDbTrace("⚠️ Note that 'localhost' or '127.0.0.1' points to this sandbox, not your physical laptop.");
+      logDbTrace("💡 Solution 1: Use a cloud-hosted DB (e.g. Supabase, Neon.tech, ElephantSQL) and paste its DATABASE_URL into your settings.");
+      logDbTrace("💡 Solution 2: Download this project via ZIP, install dependencies, and run it locally on your PC so it connects to your local DB.");
     } else {
-      console.warn("   Make sure your PostgreSQL server is active, credentials are correct, and accessible from this runtime.");
+      logDbTrace(`💡 Check list: Is the DB running? Is password correct? Port 5432 open? Did you allow remote access/SSL?`);
     }
     isDbConnected = false;
   }
@@ -185,15 +217,18 @@ export async function saveNewsToDb(newsItems: any[]) {
 /**
  * Get news items cached in PostgreSQL database
  */
-export async function getNewsFromDb(limit: number = 80): Promise<any[] | null> {
+export async function getNewsFromDb(limit?: number): Promise<any[] | null> {
   const activePool = getDbPool();
   if (!activePool || !isDbConnected) return null;
 
   try {
-    const { rows } = await activePool.query(
-      `SELECT * FROM news ORDER BY created_at DESC, pub_date_str DESC LIMIT $1`,
-      [limit]
-    );
+    let query = `SELECT * FROM news ORDER BY created_at DESC, pub_date_str DESC`;
+    let params: any[] = [];
+    if (limit) {
+      query += ` LIMIT $1`;
+      params.push(limit);
+    }
+    const { rows } = await activePool.query(query, params);
     
     return rows.map(r => {
       let sourceType = r.source_type;

@@ -59,7 +59,12 @@ import {
   Menu,
   Filter,
   ChevronDown,
-  ArrowLeftRight
+  ArrowLeftRight,
+  Terminal,
+  Copy,
+  Check,
+  FileCode,
+  Key
 } from "lucide-react";
 import {
   AreaChart,
@@ -2656,16 +2661,64 @@ function ProfileView({
   totalCapital: number;
   setTotalCapital: (val: number) => void; 
 }) {
-  const [dbStatus, setDbStatus] = useState<{ connected: boolean; url: string; host: string; database: string } | null>(null);
+  const [dbStatus, setDbStatus] = useState<{ connected: boolean; url: string; host: string; database: string; logs?: string[] } | null>(null);
+  const [csrForm, setCsrForm] = useState({
+    country: "ID",
+    state: "DKI Jakarta",
+    locality: "Jakarta",
+    organization: "Aplikasi Saham IHSG",
+    orgUnit: "IT Security",
+    commonName: "saham-ihsg.internal",
+    email: "admin@saham-ihsg.internal"
+  });
+  const [csrResult, setCsrResult] = useState<{ privateKey: string; csr: string; subject: string } | null>(null);
+  const [csrLoading, setCsrLoading] = useState(false);
+  const [csrError, setCsrError] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState(false);
+  const [copiedCsr, setCopiedCsr] = useState(false);
 
   useEffect(() => {
     if (isLoggedIn) {
       fetch('/api/db-status')
         .then(res => res.json())
         .then(data => setDbStatus(data))
-        .catch(() => setDbStatus({ connected: false, url: 'Fail', host: 'N/A', database: 'N/A' }));
+        .catch(() => setDbStatus({ connected: false, url: 'Fail', host: 'N/A', database: 'N/A', logs: ["Gagal memuat log diagnosis koneksi dari backend."] }));
     }
   }, [isLoggedIn]);
+
+  const handleGenerateCSR = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCsrLoading(true);
+    setCsrError(null);
+    setCsrResult(null);
+    try {
+      const res = await fetch('/api/generate-csr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(csrForm)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Gagal membuat CSR");
+      }
+      setCsrResult(data);
+    } catch (err: any) {
+      setCsrError(err.message);
+    } finally {
+      setCsrLoading(false);
+    }
+  };
+
+  const copyToClipboard = (text: string, isKey: boolean) => {
+    navigator.clipboard.writeText(text);
+    if (isKey) {
+      setCopiedKey(true);
+      setTimeout(() => setCopiedKey(false), 2000);
+    } else {
+      setCopiedCsr(true);
+      setTimeout(() => setCopiedCsr(false), 2000);
+    }
+  };
 
   if (!isLoggedIn) {
     return (
@@ -2740,12 +2793,12 @@ function ProfileView({
           <div>
             {dbStatus ? (
               dbStatus.connected ? (
-                <span className="inline-flex items-center px-4 py-2 rounded-full text-xs font-black bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 uppercase tracking-widest">
+                <span className="inline-flex items-center px-4 py-2 rounded-full text-xs font-black bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 uppercase tracking-widest animate-in fade-in duration-300">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 mr-2 animate-ping"></span>
                   CONNECTED
                 </span>
               ) : (
-                <span className="inline-flex items-center px-4 py-2 rounded-full text-xs font-black bg-rose-500/10 border border-rose-500/30 text-rose-400 uppercase tracking-widest">
+                <span className="inline-flex items-center px-4 py-2 rounded-full text-xs font-black bg-rose-500/10 border border-rose-500/30 text-rose-400 uppercase tracking-widest animate-in fade-in duration-300">
                   <span className="w-2 h-2 rounded-full bg-rose-500 mr-2"></span>
                   DISCONNECTED (FALLBACK ACTIVE)
                 </span>
@@ -2758,7 +2811,7 @@ function ProfileView({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
            <div className="bg-[#050505] p-5 rounded-2xl border border-[#1a1a1a] space-y-3">
               <span className="block text-[9px] font-black text-[#555] uppercase tracking-[1.5px]">Koneksi Server</span>
               <div className="flex items-center justify-between text-xs font-semibold text-[#aaa]">
@@ -2779,6 +2832,215 @@ function ProfileView({
               <h4 className="font-bold text-white uppercase tracking-wider mb-2 text-[10px]">💡 Catatan Integrasi</h4>
               <p>Website akan secara otomatis membuat tabel <code className="text-blue-300 font-mono">news</code> dan <code className="text-blue-300 font-mono">trading_plans</code> ketika pertama kali terhubung. Jika database tidak tersambung, website secara cerdas akan langsung beralih ke engine in-memory dan parsing realtime gratis agar sistem tetap beroperasi 100%.</p>
            </div>
+        </div>
+
+        {/* Diagnostic Logs Panel */}
+        <div className="mt-6 border-t border-[#1a1a1a] pt-6">
+           <div className="flex items-center justify-between mb-3">
+              <span className="text-[10px] font-black text-gray-400 uppercase tracking-[1.5px] flex items-center gap-1.5">
+                 <Terminal size={13} className="text-blue-400" />
+                 Database Trace & Diagnostic Connection Logs
+              </span>
+              <button 
+                 onClick={() => {
+                   fetch('/api/db-status')
+                     .then(res => res.json())
+                     .then(data => setDbStatus(data))
+                     .catch(() => {});
+                 }}
+                 className="flex items-center gap-1 p-1 px-2.5 rounded bg-blue-550/10 hover:bg-blue-500/5 text-[9px] font-bold text-blue-400 hover:text-blue-300 uppercase tracking-widest transition-all"
+              >
+                 <RefreshCw size={10} className="mr-0.5 animate-spin-slow" />
+                 Refresh Trace
+              </button>
+           </div>
+           <div className="bg-[#050505] rounded-xl border border-[#111] p-4 max-h-[220px] overflow-y-auto font-mono text-[10px] text-gray-400 space-y-1.5 scrollbar-thin select-all">
+              {dbStatus?.logs && dbStatus.logs.length > 0 ? (
+                 dbStatus.logs.map((log: string, idx: number) => {
+                   let colorClass = "text-gray-400 border-l border-[#222] pl-2";
+                   if (log.includes("✅") || log.includes("🎉")) colorClass = "text-emerald-400 border-l border-emerald-950 pl-2";
+                   else if (log.includes("❌") || log.includes("⚠️") || log.includes("DANGER")) colorClass = "text-rose-400 font-semibold border-l border-rose-950 pl-2";
+                   else if (log.includes("ℹ️") || log.includes("Initializing")) colorClass = "text-blue-400 border-l border-blue-950 pl-2";
+                   return (
+                     <div key={idx} className={`leading-relaxed whitespace-pre-wrap ${colorClass}`}>
+                        {log}
+                     </div>
+                   );
+                 })
+              ) : (
+                 <div className="text-[#444] italic">Menunggu trace logs dikirim dari database pool backend... Ketuk "Refresh Trace" untuk me-load ulang.</div>
+              )}
+           </div>
+        </div>
+
+        {/* SSL CSR Certificate Signing Request Generator Utility */}
+        <div className="mt-8 border-t border-[#1a1a1a] pt-8">
+          <div className="mb-4">
+             <h3 className="text-sm font-black text-white uppercase tracking-wider mb-2 flex items-center gap-2">
+               <Key size={16} className="text-amber-500" />
+               SSL CSR (Certificate Signing Request) Utility
+             </h3>
+             <p className="text-[#888] text-xs">Buat kunci privat RSA 2048-bit mandiri serta CSR (Certificate Signing Request) yang ter-valdiate untuk meng-amankan database PostgreSQL atau server web Anda menggunakan SSL/TLS.</p>
+          </div>
+
+          <form onSubmit={handleGenerateCSR} className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-[#050505] p-6 rounded-2xl border border-[#111] mb-6">
+             <div>
+                <label className="block text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Country Code (C) <span className="text-rose-500">*</span></label>
+                <input 
+                   type="text" 
+                   maxLength={2}
+                   value={csrForm.country}
+                   onChange={e => setCsrForm({ ...csrForm, country: e.target.value.toUpperCase() })}
+                   className="w-full bg-[#111] border border-[#222] rounded-lg px-3 py-2 text-xs font-bold text-white transition-colors focus:border-amber-500 focus:outline-none"
+                   placeholder="ID"
+                   required
+                />
+             </div>
+             <div>
+                <label className="block text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1.5">State / Provinsi (ST)</label>
+                <input 
+                   type="text" 
+                   value={csrForm.state}
+                   onChange={e => setCsrForm({ ...csrForm, state: e.target.value })}
+                   className="w-full bg-[#111] border border-[#222] rounded-lg px-3 py-2 text-xs font-bold text-white transition-colors focus:border-amber-500 focus:outline-none"
+                   placeholder="DKI Jakarta"
+                />
+             </div>
+             <div>
+                <label className="block text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Locality / Kota (L)</label>
+                <input 
+                   type="text" 
+                   value={csrForm.locality}
+                   onChange={e => setCsrForm({ ...csrForm, locality: e.target.value })}
+                   className="w-full bg-[#111] border border-[#222] rounded-lg px-3 py-2 text-xs font-bold text-white transition-colors focus:border-amber-500 focus:outline-none"
+                   placeholder="Jakarta"
+                />
+             </div>
+             <div>
+                <label className="block text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Organization (O)</label>
+                <input 
+                   type="text" 
+                   value={csrForm.organization}
+                   onChange={e => setCsrForm({ ...csrForm, organization: e.target.value })}
+                   className="w-full bg-[#111] border border-[#222] rounded-lg px-3 py-2 text-xs font-bold text-white transition-colors focus:border-amber-500 focus:outline-none"
+                   placeholder="Aplikasi Saham IHSG"
+                />
+             </div>
+             <div>
+                <label className="block text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Org Unit (OU)</label>
+                <input 
+                   type="text" 
+                   value={csrForm.orgUnit}
+                   onChange={e => setCsrForm({ ...csrForm, orgUnit: e.target.value })}
+                   className="w-full bg-[#111] border border-[#222] rounded-lg px-3 py-2 text-xs font-bold text-white transition-colors focus:border-amber-500 focus:outline-none"
+                   placeholder="IT Security"
+                />
+             </div>
+             <div>
+                <label className="block text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Common Name / Domain (CN) <span className="text-rose-500">*</span></label>
+                <input 
+                   type="text" 
+                   value={csrForm.commonName}
+                   onChange={e => setCsrForm({ ...csrForm, commonName: e.target.value })}
+                   className="w-full bg-[#111] border border-[#222] rounded-lg px-3 py-2 text-xs font-bold text-white transition-colors focus:border-amber-500 focus:outline-none"
+                   placeholder="saham-ihsg.internal"
+                   required
+                />
+             </div>
+             <div className="md:col-span-2">
+                <label className="block text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Email Address</label>
+                <input 
+                   type="email" 
+                   value={csrForm.email}
+                   onChange={e => setCsrForm({ ...csrForm, email: e.target.value })}
+                   className="w-full bg-[#111] border border-[#222] rounded-lg px-3 py-2 text-xs font-bold text-white transition-colors focus:border-amber-500 focus:outline-none"
+                   placeholder="admin@saham-ihsg.internal"
+                />
+             </div>
+             <div className="flex items-end">
+                <button
+                   type="submit"
+                   disabled={csrLoading}
+                   className="w-full py-2 px-4 bg-amber-500 hover:bg-amber-600 disabled:bg-gray-800 disabled:text-gray-600 text-black text-xs font-extrabold uppercase tracking-widest rounded-lg transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                   {csrLoading ? (
+                      <>
+                         <RefreshCw size={12} className="animate-spin" />
+                         Generating...
+                      </>
+                   ) : (
+                      <>
+                         <FileCode size={12} />
+                         Generate CSR & Key
+                      </>
+                   )}
+                </button>
+             </div>
+          </form>
+
+          {csrError && (
+             <p className="p-4 rounded-xl border border-rose-900/30 bg-rose-950/20 text-rose-400 font-bold text-xs leading-relaxed mb-4">
+                ⚠️ Error: {csrError}
+             </p>
+          )}
+
+          {csrResult && (
+             <div className="space-y-4 animate-in fade-in duration-300">
+                <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/20 text-[11px] leading-relaxed text-amber-300">
+                   <p className="font-bold uppercase tracking-wider mb-1 flex items-center gap-1">✅ Sukses Men-generate Sertifikat!</p>
+                   <p className="text-[10px] text-gray-500">Subject: <span className="font-mono text-gray-300 select-all">{csrResult.subject}</span></p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                   <div className="p-4 bg-[#050505] rounded-xl border border-[#222] relative">
+                      <div className="flex items-center justify-between mb-2">
+                         <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest">RSA Private Key (server.key)</span>
+                         <button 
+                            onClick={() => copyToClipboard(csrResult.privateKey, true)}
+                            className="p-1.5 bg-[#111] rounded border border-[#222] hover:border-amber-500 text-gray-400 hover:text-amber-400 transition-all active:scale-90 flex items-center gap-1.5 text-[9px] font-bold"
+                            title="Salin Key"
+                         >
+                            {copiedKey ? <Check size={10} className="text-emerald-400" /> : <Copy size={10} />}
+                            {copiedKey ? "Copied!" : "Copy"}
+                         </button>
+                      </div>
+                      <textarea
+                         readOnly
+                         value={csrResult.privateKey}
+                         className="w-full h-40 bg-[#0d0d0d] border border-[#111] rounded-lg p-3 font-mono text-[9px] text-[#888] select-all focus:outline-none resize-none"
+                      />
+                   </div>
+
+                   <div className="p-4 bg-[#050505] rounded-xl border border-[#222] relative">
+                      <div className="flex items-center justify-between mb-2">
+                         <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Certificate Signing Request (server.csr)</span>
+                         <button 
+                            onClick={() => copyToClipboard(csrResult.csr, false)}
+                            className="p-1.5 bg-[#111] rounded border border-[#222] hover:border-amber-500 text-gray-400 hover:text-amber-400 transition-all active:scale-90 flex items-center gap-1.5 text-[9px] font-bold"
+                            title="Salin CSR"
+                         >
+                            {copiedCsr ? <Check size={10} className="text-emerald-400" /> : <Copy size={10} />}
+                            {copiedCsr ? "Copied!" : "Copy"}
+                         </button>
+                      </div>
+                      <textarea
+                         readOnly
+                         value={csrResult.csr}
+                         className="w-full h-40 bg-[#0d0d0d] border border-[#111] rounded-lg p-3 font-mono text-[9px] text-[#888] select-all focus:outline-none resize-none"
+                      />
+                   </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-blue-900/10 border border-blue-950 text-[10px] leading-relaxed text-[#8a99ad]">
+                   <h5 className="font-bold text-white uppercase tracking-wider mb-1.5">Cara Menggunakan:</h5>
+                   <ul className="list-decimal list-inside space-y-1.5">
+                      <li>Salin <strong className="text-white">RSA Private Key</strong> dan simpan sebagai file bernama <code className="text-blue-300 font-mono">server.key</code> di direktori aman PostgreSQL/Web Anda.</li>
+                      <li>Salin <strong className="text-white">Certificate Signing Request (CSR)</strong>, simpan sebagai <code className="text-blue-300 font-mono">server.csr</code>, lalu ajukan ke Otoritas Sertifikat (CA) terpercaya seperti let's Encrypt, ZeroSSL, atau tim infrastruktur Anda untuk mendapatkan sertifikat ditandatangani (<code className="text-blue-300 font-mono">server.crt</code>).</li>
+                      <li>Pasang kunci dan sertifikat hasil tanda-tangan di database/server Anda untuk mengaktifkan koneksi SSL aman yang terenkripsi penuh.</li>
+                   </ul>
+                </div>
+             </div>
+          )}
         </div>
       </div>
 

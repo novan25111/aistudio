@@ -6,9 +6,12 @@ import yahooFinanceDefault from 'yahoo-finance2';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { VWAP, RSI, bullishengulfingpattern, EMA, ATR, MACD, BollingerBands } from 'technicalindicators';
-import { initializeDatabase, saveNewsToDb, getNewsFromDb, checkDbStatus } from './src/lib/db';
+import { initializeDatabase, saveNewsToDb, getNewsFromDb, checkDbStatus, getDbLogs } from './src/lib/db';
 import './src/cron/marketAnalyzer';
 import cron from 'node-cron';
+import { spawn } from 'child_process';
+import fs from 'fs';
+import os from 'os';
 
 const YF = (yahooFinanceDefault as any).default || yahooFinanceDefault;
 const yahooFinance = new YF({
@@ -260,46 +263,13 @@ async function startServer() {
     }
   });
 
-  app.get('/api/news', async (req, res) => {
-    try {
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      res.setHeader('Pragma', 'no-cache');
-      res.setHeader('Expires', '0');
-
-      const symbol = req.query.symbol ? String(req.query.symbol).split('.')[0].toUpperCase() : '';
-      const name = req.query.name ? String(req.query.name) : '';
-      const forceFetch = req.query.forceFetch === 'true';
-      
-      // Try to read news from PostgreSQL cache first if database is available and initialized, unless forceFetch is true
-      if (!forceFetch) {
-        try {
-          const cachedNews = await getNewsFromDb(250);
-          if (cachedNews && cachedNews.length > 0) {
-            if (symbol) {
-              const symRegex = new RegExp(`\\b${symbol}\\b`, 'i');
-              const nameRegex = name ? new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i') : null;
-              const filtered = cachedNews.filter((item: any) => {
-                const text = (item.title + " " + item.summary).toLowerCase();
-                return symRegex.test(text) || (nameRegex && nameRegex.test(text));
-              });
-              if (filtered.length > 0) {
-                return res.json(filtered);
-              }
-            } else {
-              return res.json(cachedNews.slice(0, 200));
-            }
-          }
-        } catch (cacheErr: any) {
-          console.warn("⚠️ PostgreSQL news cache reading failed, falling back to live fetch:", cacheErr.message);
-        }
-      }
-
+  async function fetchAndSaveNews(symbol: string, name: string) {
       const parser = new Parser();
       
       // Construct a better search query for Indonesian stocks
       // BBCA -> "BBCA" OR "Bank Central Asia"
       const searchQueryPart = name ? `%22${encodeURIComponent(symbol)}%22+OR+%22${encodeURIComponent(name)}%22` : `%22${encodeURIComponent(symbol)}%22`;
-      const symbolQuery = symbol ? `+(${searchQueryPart})` : '';
+      // const symbolQuery = symbol ? `+(${searchQueryPart})` : '';
       const symRegex = symbol ? new RegExp(`\\b${symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i') : null;
 
       const allSourcesRaw = [
@@ -326,15 +296,15 @@ async function startServer() {
         { name: 'Antara News', url: `https://news.google.com/rss/search?q=site:antaranews.com+saham&hl=id&gl=ID&ceid=ID:id`, type: 'Media Lokal', weight: 1.1 },
         { name: 'Katadata', url: `https://news.google.com/rss/search?q=site:katadata.co.id+saham+OR+ekonomi&hl=id&gl=ID&ceid=ID:id`, type: 'Media Lokal', weight: 1.2 },
         // 3. Media Global
-        { name: 'Reuters', url: `https://news.google.com/rss/search?q=site:reuters.com+stock+market&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.3 },
-        { name: 'Bloomberg', url: `https://news.google.com/rss/search?q=site:bloomberg.com+market&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.3 },
-        { name: 'AP News', url: `https://news.google.com/rss/search?q=site:apnews.com+business+OR+finance+OR+market&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.2 },
-        { name: 'BBC News', url: `https://news.google.com/rss/search?q=site:bbc.com/news+business+OR+market&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.2 },
-        { name: 'WSJ', url: `https://news.google.com/rss/search?q=site:wsj.com+finance+OR+market&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.3 },
-        { name: 'Financial Times', url: `https://news.google.com/rss/search?q=site:ft.com+finance+OR+market&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.3 },
-        { name: 'NY Times', url: `https://news.google.com/rss/search?q=site:nytimes.com+business+OR+economy&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.2 },
-        { name: 'The Guardian', url: `https://news.google.com/rss/search?q=site:theguardian.com+business+OR+economy&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.2 },
-        { name: 'Deutsche Welle (DW)', url: `https://news.google.com/rss/search?q=site:dw.com+business+OR+economy&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.2 },
+        { name: 'Reuters', url: `https://news.google.com/rss/search?q=site:reuters.com+economy+OR+macro+OR+war+OR+policy+OR+geopolitics&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.3 },
+        { name: 'Bloomberg', url: `https://news.google.com/rss/search?q=site:bloomberg.com+economy+OR+macro+OR+war+OR+policy+OR+geopolitics&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.3 },
+        { name: 'AP News', url: `https://news.google.com/rss/search?q=site:apnews.com+economy+OR+macro+OR+war+OR+policy&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.2 },
+        { name: 'BBC News', url: `https://news.google.com/rss/search?q=site:bbc.com/news+business+OR+economy+OR+world&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.2 },
+        { name: 'WSJ', url: `https://news.google.com/rss/search?q=site:wsj.com+economy+OR+policy+OR+macro&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.3 },
+        { name: 'Financial Times', url: `https://news.google.com/rss/search?q=site:ft.com+economy+OR+policy+OR+geopolitics&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.3 },
+        { name: 'NY Times', url: `https://news.google.com/rss/search?q=site:nytimes.com+economy+OR+world&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.2 },
+        { name: 'The Guardian', url: `https://news.google.com/rss/search?q=site:theguardian.com+economy+OR+world+OR+policy&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.2 },
+        { name: 'Deutsche Welle (DW)', url: `https://news.google.com/rss/search?q=site:dw.com+business+OR+economy+OR+macro&hl=en-US&gl=US&ceid=US:en`, type: 'Media Global', weight: 1.2 },
         // 4. Media Sektoral
         { name: 'Dunia Energi', url: `https://news.google.com/rss/search?q=site:dunia-energi.com+migas+OR+batu+bara&hl=id&gl=ID&ceid=ID:id`, type: 'Media Sektoral', weight: 1.1 },
         // 5. Sentimen Komunitas
@@ -342,10 +312,20 @@ async function startServer() {
         { name: 'Kaskus Saham', url: `https://news.google.com/rss/search?q=grup+saham+OR+ritel+OR+rekomendasi+investor&hl=id&gl=ID&ceid=ID:id`, type: 'Sentimen Komunitas', weight: 1.0 }
       ];
 
-      const allSources = allSourcesRaw.map(source => ({
-        ...source,
-        url: `${source.url}${source.url.includes('?') ? '&' : '?'}_t=${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
-      }));
+      // Jika symbol di-provide, filter allSourcesRaw hanya untuk Media Lokal, Sektoral, Komunitas (dan spesifik search query), atau tambahkan symbolQuery.
+      const allSources = allSourcesRaw.map(source => {
+        let finalUrl = source.url;
+        if (symbol && (source.type === 'Media Lokal' || source.type === 'Sentimen Komunitas')) {
+            // Append symbol query to URL if it's a search
+            if (finalUrl.includes('search?q=')) {
+                finalUrl = finalUrl.replace('search?q=', `search?q=${searchQueryPart}+`);
+            }
+        }
+        return {
+          ...source,
+          url: `${finalUrl}${finalUrl.includes('?') ? '&' : '?'}_t=${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
+        };
+      });
 
       const analyzeNews = (title: string, summary: string, sourceName: string, sourceType: string, weight: number, pubDateStr?: string) => {
         const titleLower = title.toLowerCase();
@@ -465,9 +445,9 @@ async function startServer() {
 
         // Aturan symbol vs general
         if (symbol) {
-            const symRegex = new RegExp(`\\b${symbol.toLowerCase()}\\b`, 'i');
-            const nameRegex = name ? new RegExp(`\\b${name.toLowerCase()}\\b`, 'i') : null;
-            if (symRegex.test(text) || (nameRegex && nameRegex.test(text))) {
+            const symRegexLocal = new RegExp(`\\b${symbol.toLowerCase()}\\b`, 'i');
+            const nameRegexLocal = name ? new RegExp(`\\b${name.toLowerCase()}\\b`, 'i') : null;
+            if (symRegexLocal.test(text) || (nameRegexLocal && nameRegexLocal.test(text))) {
                relevanceScore += 100; // Pasti relevan karena menyebutkan user's explicitly requested ticker/name
             }
         }
@@ -498,7 +478,7 @@ async function startServer() {
         }
 
         const sectorMapping: Record<string, RegExp> = {
-          'Keuangan': /\b(bank|bunga|kredit|finansial|ojk|bi rate|pembiayaan|asuransi|multifinance)\b/i,
+          'Keuangan': /\b(bank|bunga|kredit|finansial|ojk|bi rate|pembiayaan|asuransi|multfinance)\b/i,
           'Energi & Tambang': /\b(tambang|nikel|minyak|batu bara|emas|komoditas|migas|energi|mineral|cpo|sawit)\b/i,
           'Konsumer': /\b(ritel|konsumsi|inflasi|daya beli|fmcg|makanan|minuman|supermarket|minimarket|agrikultur)\b/i,
           'Teknologi': /\b(teknologi|startup|e-commerce|digital|data center|ai|aplikasi|software|hardware)\b/i,
@@ -654,7 +634,6 @@ async function startServer() {
         const randomUser = mockUsers[index % mockUsers.length];
         const randomSource = mockCommunitySources[(index + 3) % mockCommunitySources.length];
         
-        // Strip out trailing publication names to keep it clean
         let cleanTitle = item.title || "";
         cleanTitle = cleanTitle.replace(/\s*[-|]\s*(CNBC Indonesia|Bisnis\.com|Kontan|Reuters|Bloomberg|Yahoo Finance|IDX|KSEI|Bank Indonesia|Otoritas Jasa Keuangan|BPS|Bappebti|InfoPublik|Kementerian Keuangan|Sekretariat Kabinet|Kementerian Perdagangan|Katadata|Investor Daily|Bloomberg Technoz|CNN Indonesia|Antara News|BBC News|WSJ|Financial Times|NY Times|The Guardian|Deutsche Welle|Dunia Energi)\s*/gi, "");
 
@@ -688,9 +667,7 @@ async function startServer() {
         });
       });
 
-      // Combine both the parsed community RSS news and our high-fidelity synthesized community reaction posts
       const combinedNewsList = [...uniqueNews, ...communitySentimentItems];
-
       const sortedNews = combinedNewsList.sort((a: any, b: any) => 
         new Date(b.pubDateStr || 0).getTime() - new Date(a.pubDateStr || 0).getTime()
       );
@@ -703,6 +680,46 @@ async function startServer() {
           console.warn("⚠️ Background news caching failed:", err.message);
         });
       }
+      
+      return responseNewsList;
+  }
+
+  app.get('/api/news', async (req, res) => {
+    try {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+
+      const symbol = req.query.symbol ? String(req.query.symbol).split('.')[0].toUpperCase() : '';
+      const name = req.query.name ? String(req.query.name) : '';
+      const forceFetch = req.query.forceFetch === 'true';
+      
+      // Strict rule: API requests ALWAYS check database first.
+      try {
+        const cachedNews = await getNewsFromDb();
+        if (cachedNews && cachedNews.length > 0) {
+          if (symbol) {
+            const symRegex = new RegExp(`\\b${symbol}\\b`, 'i');
+            const nameRegex = name ? new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i') : null;
+            const filtered = cachedNews.filter((item: any) => {
+              const text = (item.title + " " + item.summary).toLowerCase();
+              return symRegex.test(text) || (nameRegex && nameRegex.test(text));
+            });
+            // If we found local matches in DB, return them immediately
+            if (filtered.length > 0) {
+              return res.json(filtered);
+            }
+          } else {
+            // General query: Return DB cache directly
+            return res.json(cachedNews);
+          }
+        }
+      } catch (cacheErr: any) {
+        console.warn("⚠️ PostgreSQL news cache reading failed, falling back to live fetch:", cacheErr.message);
+      }
+
+      // If DB is empty or we requested a symbol not found in DB, we fetch live
+      const responseNewsList = await fetchAndSaveNews(symbol, name);
 
       if (symbol) {
         const symRegex = new RegExp(`\\b${symbol}\\b`, 'i');
@@ -727,7 +744,80 @@ async function startServer() {
       url: process.env.DATABASE_URL ? 'Configured (DATABASE_URL)' : (checkDbStatus() ? 'Configured (Discrete Env)' : 'Not configured / Fallback'),
       host: process.env.PGHOST || 'localhost',
       database: process.env.PGDATABASE || 'postgres',
+      logs: getDbLogs(),
     });
+  });
+
+  app.post('/api/generate-csr', express.json(), async (req, res) => {
+    try {
+      const { country, state, locality, organization, orgUnit, commonName, email } = req.body;
+
+      // Validate parameters to prevent any command injection or file path issues.
+      const safeRegex = /^[a-zA-Z0-9\s.,_\-@*]{1,100}$/;
+      const safeCountry = /^[a-zA-Z]{2}$/;
+
+      if (!country || !safeCountry.test(country)) {
+        return res.status(400).json({ error: 'Country harus beruba 2 kode huruf negara (contoh: ID atau US).' });
+      }
+      if (!commonName || !safeRegex.test(commonName)) {
+        return res.status(400).json({ error: 'Common Name (Domain) wajib diisi dengan benar.' });
+      }
+
+      // Safe defaults for optional fields if invalid
+      const cleanState = (state && safeRegex.test(state)) ? state : 'DKI Jakarta';
+      const cleanLocality = (locality && safeRegex.test(locality)) ? locality : 'Jakarta';
+      const cleanOrg = (organization && safeRegex.test(organization)) ? organization : 'Self Signed Corp';
+      const cleanOrgUnit = (orgUnit && safeRegex.test(orgUnit)) ? orgUnit : 'IT Department';
+      const cleanEmail = (email && safeRegex.test(email)) ? email : 'admin@' + commonName;
+
+      // Generate a unique directory inside /tmp to avoid permission conflicts
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openssl-csr-'));
+      const keyPath = path.join(tempDir, 'server.key');
+      const csrPath = path.join(tempDir, 'server.csr');
+
+      // Subject format for openssl req
+      const subject = `/C=${country}/ST=${cleanState}/L=${cleanLocality}/O=${cleanOrg}/OU=${cleanOrgUnit}/CN=${commonName}/emailAddress=${cleanEmail}`;
+
+      // Run openssl
+      const openssl = spawn('openssl', [
+        'req', '-nodes', '-new',
+        '-newkey', 'rsa:2048',
+        '-keyout', keyPath,
+        '-out', csrPath,
+        '-subj', subject
+      ]);
+
+      let stderr = '';
+      openssl.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      const exitCode = await new Promise((resolve) => {
+        openssl.on('close', resolve);
+      });
+
+      if (exitCode !== 0) {
+        throw new Error(`Terminal OpenSSL keluar dengan kode error ${exitCode}. Error: ${stderr}`);
+      }
+
+      // Read output files
+      const privateKey = fs.readFileSync(keyPath, 'utf8');
+      const csr = fs.readFileSync(csrPath, 'utf8');
+
+      // Cleanup
+      fs.unlinkSync(keyPath);
+      fs.unlinkSync(csrPath);
+      fs.rmdirSync(tempDir);
+
+      res.json({
+        success: true,
+        privateKey,
+        csr,
+        subject
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: `Gagal men-generate CSR: ${err.message}` });
+    }
   });
 
   app.get('/api/broker-summary/:symbol', async (req, res) => {
@@ -1471,10 +1561,7 @@ async function startServer() {
   cron.schedule('*/10 * * * *', async () => {
     try {
       console.log("Mengeksekusi cron job: Update berita general ke database...");
-      // Panggil endpoint secara internal tanpa symbol dengan param forceFetch=true untuk skip check db
-      await axios.get(`http://127.0.0.1:${PORT}/api/news?forceFetch=true`, {
-        timeout: 60000 // 1 min timeout
-      });
+      await fetchAndSaveNews('', '');
       console.log("Cron job berhasil update data berita.");
     } catch (err: any) {
       console.error("Cron job error update data berita:", err.message);
