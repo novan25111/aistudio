@@ -706,7 +706,7 @@ async function startServer() {
   app.get('/api/db-status', (req, res) => {
     res.json({
       connected: checkDbStatus(),
-      url: process.env.DATABASE_URL ? 'Configured' : 'Not configured / Fallback',
+      url: process.env.DATABASE_URL ? 'Configured (DATABASE_URL)' : (checkDbStatus() ? 'Configured (Discrete Env)' : 'Not configured / Fallback'),
       host: process.env.PGHOST || 'localhost',
       database: process.env.PGDATABASE || 'postgres',
     });
