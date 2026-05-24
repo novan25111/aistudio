@@ -17,7 +17,7 @@ export function TechnicalDashboard({ symbol }: { symbol: string }) {
       const results: Record<string, any> = {};
       for (const tf of timeframes) {
         try {
-          const res = await fetch(`/api/technical/${symbol}?interval=${tf}`);
+          const res = await fetch(`/api/technical/${symbol}?interval=${tf}&isSearch=true`);
           if (res.ok) {
             results[tf] = await res.json();
           }

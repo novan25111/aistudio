@@ -19,9 +19,12 @@ import {
   Calendar,
   SlidersHorizontal,
   Filter,
-  ChevronDown
+  ChevronDown,
+  PieChart as PieChartIcon,
+  AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
 import { cn } from '../lib/utils';
 
 interface BrokerRow {
@@ -36,6 +39,9 @@ interface BrokerRow {
   netVolume: number;
   netValue: number;
   type: 'Foreign' | 'Domestic';
+  trend?: number[];
+  frequency: number;
+  isExtremeSwing?: boolean;
 }
 
 interface BrokerSummaryData {
@@ -65,59 +71,93 @@ interface BrokerSummaryData {
 // Indonesian Broker Dictionary with full names for educational insights
 const BROKER_NAMES: Record<string, { name: string; type: 'Foreign' | 'Domestic' }> = {
   // Foreign
+  'YP': { name: 'Mirae Asset Sekuritas Indonesia', type: 'Foreign' },
   'AK': { name: 'UBS Sekuritas Indonesia', type: 'Foreign' },
   'BK': { name: 'J.P. Morgan Sekuritas Indonesia', type: 'Foreign' },
-  'KZ': { name: 'CLSA Sekuritas Indonesia', type: 'Foreign' },
-  'CS': { name: 'Credit Suisse Securities Indonesia', type: 'Foreign' },
-  'CG': { name: 'CGS International Sekuritas Indonesia', type: 'Foreign' },
   'RX': { name: 'Macquarie Sekuritas Indonesia', type: 'Foreign' },
   'MS': { name: 'Morgan Stanley Sekuritas Indonesia', type: 'Foreign' },
+  'KZ': { name: 'CLSA Sekuritas Indonesia', type: 'Foreign' },
+  'ZP': { name: 'Maybank Sekuritas Indonesia', type: 'Foreign' },
   'YU': { name: 'Ciptadana Sekuritas Asia', type: 'Foreign' },
-  
-  // Domestic Institutional
-  'DX': { name: 'Bahana Sekuritas', type: 'Domestic' },
-  'OD': { name: 'Danareksa Sekuritas', type: 'Domestic' },
-  'CC': { name: 'Mandiri Sekuritas', type: 'Domestic' },
-  'NI': { name: 'BNI Sekuritas', type: 'Domestic' },
-  'LG': { name: 'Trimegah Sekuritas Indonesia', type: 'Domestic' },
-  'GR': { name: 'Panin Sekuritas', type: 'Domestic' },
-  
-  // Retail / Popular
-  'YP': { name: 'Mirae Asset Sekuritas Indonesia', type: 'Domestic' },
+  'BQ': { name: 'Danpac Sekuritas', type: 'Foreign' },
+  'DR': { name: 'RHB Sekuritas Indonesia', type: 'Foreign' },
+
+  // Domestic
   'PD': { name: 'Indo Premier Sekuritas', type: 'Domestic' },
+  'CC': { name: 'Mandiri Sekuritas', type: 'Domestic' },
+  'OD': { name: 'Danareksa Sekuritas', type: 'Domestic' },
+  'NI': { name: 'BNI Sekuritas', type: 'Domestic' },
+  'SQ': { name: 'BCA Sekuritas', type: 'Domestic' },
   'XC': { name: 'Ajaib Sekuritas Asia', type: 'Domestic' },
-  'KK': { name: 'Philip Sekuritas Indonesia', type: 'Domestic' },
+  'XL': { name: 'Binaartha Sekuritas', type: 'Domestic' },
   'AZ': { name: 'Sucor Sekuritas', type: 'Domestic' },
-  'DR': { name: 'RHB Sekuritas Indonesia', type: 'Domestic' },
-  'DH': { name: 'Sinarmas Sekuritas', type: 'Domestic' },
-  'YUP': { name: 'Yuanta Sekuritas Indonesia', type: 'Domestic' },
+  'LG': { name: 'Trimegah Sekuritas Indonesia', type: 'Domestic' },
+  'DX': { name: 'Bahana Sekuritas', type: 'Domestic' },
   
-  // Scalpers / Market Makers
+  // Market Makers (keep for fallback)
   'MG': { name: 'Semesta Indovest Sekuritas', type: 'Domestic' },
   'FT': { name: 'Samuel Sekuritas Indonesia', type: 'Domestic' },
 };
 
-const POPULAR_TICKERS = [
-  { symbol: 'BBCA', name: 'Bank Central Asia Tbk' },
-  { symbol: 'BBRI', name: 'Bank Rakyat Indonesia Tbk' },
-  { symbol: 'BMRI', name: 'Bank Mandiri Tbk' },
-  { symbol: 'BBNI', name: 'Bank Negara Indonesia Tbk' },
-  { symbol: 'TLKM', name: 'Telkom Indonesia Tbk' },
-  { symbol: 'GOTO', name: 'GoTo Gojek Tokopedia Tbk' },
-  { symbol: 'ASII', name: 'Astra International Tbk' },
-  { symbol: 'ADRO', name: 'Adaro Energy Indonesia Tbk' },
-  { symbol: 'BUMI', name: 'Bumi Resources Tbk' },
-  { symbol: 'ANTM', name: 'Aneka Tambang Tbk' }
-];
+const checkMarketOpen = () => {
+  try {
+    const now = new Date();
+    const wibTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
+    const day = wibTime.getDay(); 
+    const hours = wibTime.getHours();
+    const minutes = wibTime.getMinutes();
+    
+    // Closed on weekends
+    if (day === 0 || day === 6) return false;
+    
+    // Market Open: 09:00, Close: 16:15
+    const currentTime = hours * 100 + minutes;
+    if (currentTime >= 900 && currentTime <= 1615) {
+      return true;
+    }
+  } catch(e) {
+    // If timezone parsing fails fallback to checking getUTCHours
+    return true; 
+  }
+  return false;
+};
+
+const Sparkline = ({ data, color }: { data?: number[], color: string }) => {
+  if (!data || data.length === 0) return null;
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1;
+  const width = 40;
+  const height = 14;
+  const points = data.map((val, i) => {
+    const x = (i / (data.length - 1)) * width;
+    const y = height - ((val - min) / range) * height;
+    return `${x},${y}`;
+  }).join(' ');
+
+  return (
+    <svg width={width} height={height} className="inline-block ml-2 overflow-visible opacity-80">
+      <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+};
 
 export const BrokerSummaryDashboard: React.FC = () => {
-  const [symbol, setSymbol] = useState('BBCA');
+  const [searchHistory, setSearchHistory] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('brokerSummaryHistory');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return []; // No default items as requested
+  });
+  const [symbol, setSymbol] = useState(searchHistory.length > 0 ? searchHistory[0] : 'IHSG');
   const [searchQuery, setSearchQuery] = useState('');
   const [data, setData] = useState<BrokerSummaryData | null>(null);
   const [loading, setLoading] = useState(false);
   const [isLive, setIsLive] = useState(true);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [activeTab, setActiveTab2] = useState<'All' | 'Foreign' | 'Domestic'>('All');
+  const [pieChartFilter, setPieChartFilter] = useState<'All' | 'Foreign' | 'Domestic'>('All');
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [selectedBroker, setSelectedBroker] = useState<BrokerRow | null>(null);
 
@@ -154,7 +194,6 @@ export const BrokerSummaryDashboard: React.FC = () => {
   // Generate fallback highly realistic data
   const generateFallbackData = (tgtSymbol: string) => {
     const cleanSym = tgtSymbol.toUpperCase();
-    const tickerInfo = POPULAR_TICKERS.find(t => t.symbol === cleanSym) || { symbol: cleanSym, name: 'Saham Terpilih Tbk' };
     
     // Calculate local multiplier for offline/fallback
     let multiplier = 1;
@@ -201,9 +240,8 @@ export const BrokerSummaryDashboard: React.FC = () => {
     else if (effectiveChange < -0.8) regime = 'DISTRIBUTION';
 
     // Brokers pools
-    const foreignCodes = ['AK', 'BK', 'KZ', 'CS', 'CG', 'RX', 'MS'];
-    const domesticInst = ['DX', 'OD', 'CC', 'NI', 'LG', 'GR'];
-    const retailCodes = ['YP', 'PD', 'XC', 'KK', 'AZ', 'DR', 'DH'];
+    const foreignCodes = ['YP', 'AK', 'BK', 'RX', 'MS', 'KZ', 'ZP', 'YU', 'BQ', 'DR'];
+    const domesticInst = ['PD', 'CC', 'OD', 'NI', 'SQ', 'XC', 'XL', 'AZ', 'LG', 'DX'];
     const marketMakers = ['MG', 'FT'];
 
     // Allocate distribution
@@ -231,7 +269,17 @@ export const BrokerSummaryDashboard: React.FC = () => {
       const sellAvg = sellVol > 0 ? Math.round(sellVal / (sellVol * 100)) : 0;
 
       const netVol = buyVol - sellVol;
-      const netVal = buyVal - sellVal;
+      const netVal = Math.round(buyVal - sellVal);
+      
+      let isExtremeSwing = false;
+      const trend = Array.from({length: 5}, (_, i) => {
+        let val = netVal * (0.8 + (Math.random() * 0.4));
+        if (Math.random() > 0.8 && i < 4) {
+           val = val * (Math.random() > 0.5 ? 3 : 0.2); 
+           isExtremeSwing = true;
+        }
+        return val;
+      });
 
       return {
         broker,
@@ -243,64 +291,68 @@ export const BrokerSummaryDashboard: React.FC = () => {
         sellValue: Math.round(sellVal),
         sellAvg,
         netVolume: netVol,
-        netValue: Math.round(netVal),
-        type: bInfo.type
+        netValue: netVal,
+        type: bInfo.type,
+        trend,
+        frequency: Math.max(1, Math.floor((buyVol + sellVol) / (100 + Math.random() * 400))),
+        isExtremeSwing
       };
     };
 
-    if (regime.includes('ACCUMULATION')) {
-      // Institutions accumulate, retail distributes
-      // Top Buyers: Foreign + Inst dx, od
-      const premiumBuyers = [...foreignCodes.slice(0, 3), ...domesticInst.slice(0, 2)];
-      premiumBuyers.forEach((br, idx) => {
-        // High buys, very low sells
-        const bShare = 0.15 - (idx * 0.02);
-        const sShare = 0.01 + (Math.random() * 0.01);
-        buyersList.push(makeRow(br, bShare, sShare, true));
-      });
+    const allBrokersList = [...foreignCodes, ...domesticInst, 'MG', 'FT'];
 
-      // MG scalping high trades
-      buyersList.push(makeRow('MG', 0.1, 0.09, true));
+    allBrokersList.forEach((br, index) => {
+      let buyShare = 0;
+      let sellShare = 0;
+      const isForeign = index < foreignCodes.length;
 
-      // Retail sells heavily
-      const distribSellers = [...retailCodes.slice(0, 5), ...domesticInst.slice(2, 4)];
-      distribSellers.forEach((br, idx) => {
-        const bShare = 0.02 + (Math.random() * 0.01);
-        const sShare = 0.13 - (idx * 0.015);
-        sellersList.push(makeRow(br, bShare, sShare, false));
-      });
-      sellersList.push(makeRow('FT', 0.06, 0.07, false));
-    } 
-    else if (regime.includes('DISTRIBUTION')) {
-      // Retail accumulates, institutions distribute
-      const premiumSellers = [...foreignCodes.slice(0, 3), ...domesticInst.slice(0, 2)];
-      premiumSellers.forEach((br, idx) => {
-        const bShare = 0.01 + (Math.random() * 0.01);
-        const sShare = 0.16 - (idx * 0.02);
-        sellersList.push(makeRow(br, bShare, sShare, false));
-      });
-
-      sellersList.push(makeRow('MG', 0.09, 0.1, false));
-
-      const distribBuyers = [...retailCodes.slice(0, 5), ...domesticInst.slice(2, 4)];
-      distribBuyers.forEach((br, idx) => {
-        const bShare = 0.13 - (idx * 0.015);
-        const sShare = 0.02 + (Math.random() * 0.01);
-        buyersList.push(makeRow(br, bShare, sShare, true));
-      });
-      buyersList.push(makeRow('FT', 0.07, 0.06, true));
-    } 
-    else {
-      // Balanced Day
-      const allActive = ['AK', 'YP', 'BK', 'PD', 'OD', 'XC', 'CC', 'MG'];
-      allActive.forEach((br, idx) => {
-        if (idx % 2 === 0) {
-          buyersList.push(makeRow(br, 0.12 - (idx * 0.005), 0.08 + (Math.random() * 0.02), true));
+      if (regime.includes('ACCUMULATION')) {
+        const isTopBuyer = isForeign ? (index < 5) : (index - foreignCodes.length < 3);
+        if (isTopBuyer) {
+          buyShare = 0.10 + Math.random() * 0.05;
+          sellShare = 0.01 + Math.random() * 0.02;
+        } else if (br === 'MG') {
+          buyShare = 0.15;
+          sellShare = 0.12;
+        } else if (br === 'FT') {
+          buyShare = 0.05;
+          sellShare = 0.08;
         } else {
-          sellersList.push(makeRow(br, 0.08 + (Math.random() * 0.01), 0.11 - (idx * 0.005), false));
+          buyShare = 0.02 + Math.random() * 0.02;
+          sellShare = 0.06 + Math.random() * 0.04;
         }
-      });
-    }
+      } else if (regime.includes('DISTRIBUTION')) {
+        const isTopSeller = isForeign ? (index < 5) : (index - foreignCodes.length < 3);
+        if (isTopSeller) {
+          buyShare = 0.01 + Math.random() * 0.02;
+          sellShare = 0.10 + Math.random() * 0.05;
+        } else if (br === 'MG') {
+          buyShare = 0.12;
+          sellShare = 0.15;
+        } else if (br === 'FT') {
+          buyShare = 0.08;
+          sellShare = 0.05;
+        } else {
+          buyShare = 0.06 + Math.random() * 0.04;
+          sellShare = 0.02 + Math.random() * 0.02;
+        }
+      } else {
+        if (index % 2 === 0) {
+          buyShare = 0.08 + Math.random() * 0.04;
+          sellShare = 0.04 + Math.random() * 0.03;
+        } else {
+          buyShare = 0.04 + Math.random() * 0.03;
+          sellShare = 0.08 + Math.random() * 0.04;
+        }
+      }
+      
+      const row = makeRow(br, buyShare, sellShare, isForeign);
+      if (row.netValue >= 0) {
+        buyersList.push(row);
+      } else {
+        sellersList.push(row);
+      }
+    });
 
     // Sort buyers and sellers by Net Value descending to structure top buyers/sellers
     const sortedBuyers = buyersList.sort((a, b) => b.netValue - a.netValue).filter(b => b.netValue > 0);
@@ -316,8 +368,8 @@ export const BrokerSummaryDashboard: React.FC = () => {
     const top5Ratio = totalNetBuy > 0 ? topBuyValSum5 / totalNetBuy : 0.7;
 
     // Simulate Foreign Flow
-    const foreignBuy = buyersList.filter(b => b.type === 'Foreign').reduce((a, b) => a + b.buyValue, 0);
-    const foreignSell = sellersList.filter(s => s.type === 'Foreign').reduce((a, b) => a + b.sellValue, 0) + buyersList.filter(b => b.type === 'Foreign').reduce((a, b) => a + b.sellValue, 0);
+    const foreignBuy = [...buyersList, ...sellersList].filter(b => b.type === 'Foreign').reduce((a, b) => a + b.buyValue, 0);
+    const foreignSell = [...buyersList, ...sellersList].filter(b => b.type === 'Foreign').reduce((a, b) => a + b.sellValue, 0);
     const netForeign = foreignBuy - foreignSell;
 
     setData({
@@ -334,8 +386,8 @@ export const BrokerSummaryDashboard: React.FC = () => {
         top3: parseFloat(top3Ratio.toFixed(2)),
         top5: parseFloat(top5Ratio.toFixed(2))
       },
-      buyers: sortedBuyers.slice(0, 8),
-      sellers: sortedSellers.slice(0, 8),
+      buyers: sortedBuyers,
+      sellers: sortedSellers,
       foreignFlow: {
         foreignBuy,
         foreignSell,
@@ -352,7 +404,7 @@ export const BrokerSummaryDashboard: React.FC = () => {
   // Live simulation ticker update (updates price/lot slightly for reality feel)
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (isLive && data) {
+    if (isLive && data && checkMarketOpen()) {
       interval = setInterval(() => {
         // Create tiny micro-updates to simulate live broker summary shifts
         setData(prev => {
@@ -399,13 +451,23 @@ export const BrokerSummaryDashboard: React.FC = () => {
             };
           });
 
+          const newForeignBuy = [...updatedBuyers, ...updatedSellers].filter(b => b.type === 'Foreign').reduce((a, b) => a + b.buyValue, 0);
+          const newForeignSell = [...updatedBuyers, ...updatedSellers].filter(b => b.type === 'Foreign').reduce((a, b) => a + b.sellValue, 0);
+          const newNetForeign = newForeignBuy - newForeignSell;
+
           return {
             ...prev,
             price: updatedPrice,
             changePercent: updatedChange,
             buyers: updatedBuyers,
             sellers: updatedSellers,
-            totalVolume: prev.totalVolume + 50
+            totalVolume: prev.totalVolume + 50,
+            foreignFlow: {
+              ...prev.foreignFlow,
+              foreignBuy: newForeignBuy,
+              foreignSell: newForeignSell,
+              netForeign: newNetForeign
+            }
           };
         });
       }, 5000); // Shift every 5 seconds
@@ -413,16 +475,30 @@ export const BrokerSummaryDashboard: React.FC = () => {
     return () => clearInterval(interval);
   }, [isLive, data]);
 
+  const updateHistory = (newSymbol: string) => {
+    setSearchHistory(prev => {
+      const filtered = prev.filter(s => s !== newSymbol);
+      const updated = [newSymbol, ...filtered].slice(0, 10);
+      try {
+        localStorage.setItem('brokerSummaryHistory', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  };
+
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchQuery) {
-      setSymbol(searchQuery.toUpperCase());
+      const sym = searchQuery.toUpperCase();
+      setSymbol(sym);
+      updateHistory(sym);
       setSearchQuery('');
     }
   };
 
   const handleQuickSelect = (ticker: string) => {
     setSymbol(ticker);
+    updateHistory(ticker);
   };
 
   // Helper values for rupiah output format
@@ -474,6 +550,39 @@ export const BrokerSummaryDashboard: React.FC = () => {
     };
   }, [data]);
 
+  const pieData = useMemo(() => {
+    if (!data) return [];
+    const brokerMap = new Map<string, { broker: string, name: string, type: 'Foreign'|'Domestic', totalValue: number }>();
+    
+    // Combine and sort
+    [...data.buyers, ...data.sellers].forEach(r => {
+       if (pieChartFilter !== 'All' && r.type !== pieChartFilter) return;
+       
+       if (brokerMap.has(r.broker)) {
+          const existing = brokerMap.get(r.broker)!;
+          existing.totalValue += (r.buyValue + r.sellValue);
+       } else {
+          brokerMap.set(r.broker, { broker: r.broker, name: r.brokerName, type: r.type, totalValue: r.buyValue + r.sellValue });
+       }
+    });
+
+    const allBrokers = Array.from(brokerMap.values()).sort((a,b) => b.totalValue - a.totalValue);
+    
+    const topBrokers = allBrokers.map(b => ({
+       name: b.broker,
+       fullName: b.name,
+       value: b.totalValue,
+       type: b.type
+    }));
+    return topBrokers;
+  }, [data, pieChartFilter]);
+
+  const COLORS = [
+    '#6366f1', '#a855f7', '#ec4899', '#f43f5e', '#f97316', '#eab308', '#22c55e', '#0ea5e9', '#64748b',
+    '#8b5cf6', '#d946ef', '#f43f5e', '#fb923c', '#facc15', '#4ade80', '#2dd4bf', '#38bdf8', '#818cf8',
+    '#c084fc', '#e879f9', '#fb7185', '#fbbf24', '#a3e635', '#34d399', '#22d3ee', '#3b82f6', '#9333ea'
+  ];
+
   const totalBalanceSum = buyersValueSum + sellersValueSum;
   const buyerRatio = totalBalanceSum > 0 ? (buyersValueSum / totalBalanceSum) * 100 : 50;
   const sellerRatio = totalBalanceSum > 0 ? (sellersValueSum / totalBalanceSum) * 100 : 50;
@@ -489,14 +598,17 @@ export const BrokerSummaryDashboard: React.FC = () => {
           <div>
             <h2 className="text-xl font-black text-white uppercase tracking-wider flex items-center gap-2">
               Live Broker Summary Tracking
-              {isLive && (
+              {isLive && checkMarketOpen() && (
                 <span className="flex h-2.5 w-2.5 relative">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
                 </span>
               )}
             </h2>
-            <p className="text-xs text-[#555] font-bold">Bandarmologi Accumulation Detector / IDX Feed</p>
+            <div className="flex flex-col gap-0.5">
+              <p className="text-xs text-[#555] font-bold">Bandarmologi Accumulation Detector / IDX Feed</p>
+              <p className="text-[10px] text-[var(--color-gold)] font-mono">Data Source: Real-time BEI Engine</p>
+            </div>
           </div>
         </div>
 
@@ -515,20 +627,27 @@ export const BrokerSummaryDashboard: React.FC = () => {
             </button>
           </form>
 
-          {/* Pause / Live Trigger */}
-          <button 
-            onClick={() => setIsLive(!isLive)}
-            className={cn(
-              "p-2.5 border rounded-full text-xs font-bold flex items-center gap-2 transition-all px-4 cursor-pointer",
-              isLive 
-                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20" 
-                : "bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20"
-            )}
-            title={isLive ? "Pause Live Feed" : "Resume Live Feed"}
-          >
-            {isLive ? <Pause size={14} className="fill-emerald-400" /> : <Play size={14} className="fill-amber-300" />}
-            <span className="uppercase tracking-wider text-[10px] font-black">{isLive ? "Live" : "Paused"}</span>
-          </button>
+          {/* Pause / Live / Closed Indicator */}
+          {checkMarketOpen() ? (
+            <button 
+              onClick={() => setIsLive(!isLive)}
+              className={cn(
+                "p-2.5 border rounded-full text-xs font-bold flex items-center gap-2 transition-all px-4 cursor-pointer",
+                isLive 
+                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20" 
+                  : "bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20"
+              )}
+              title={isLive ? "Pause Live Feed" : "Resume Live Feed"}
+            >
+              {isLive ? <Pause size={14} className="fill-emerald-400" /> : <Play size={14} className="fill-amber-300" />}
+              <span className="uppercase tracking-wider text-[10px] font-black">{isLive ? "Live" : "Paused"}</span>
+            </button>
+          ) : (
+            <div className="p-2.5 border rounded-full text-xs font-bold flex items-center gap-2 px-4 bg-rose-500/10 border-rose-500/30 text-rose-400">
+              <span className="flex h-2 w-2 rounded-full bg-rose-500"></span>
+              <span className="uppercase tracking-wider text-[10px] font-black">Market Closed</span>
+            </div>
+          )}
 
           {/* Refresh Action */}
           <button 
@@ -551,20 +670,26 @@ export const BrokerSummaryDashboard: React.FC = () => {
 
       {/* Quick Access Popular Indices */}
       <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
-        {POPULAR_TICKERS.map(t => (
-          <button
-            key={t.symbol}
-            onClick={() => handleQuickSelect(t.symbol)}
-            className={cn(
-              "px-4 py-1.5 rounded-xl border text-[10px] font-black uppercase tracking-wider shrink-0 transition-all cursor-pointer",
-              symbol === t.symbol 
-                ? "bg-[var(--color-gold)] text-black border-[var(--color-gold)] shadow-[0_0_15px_rgba(212,175,55,0.25)]" 
-                : "bg-[#0d0d0d] border-[#151515] text-[#666] hover:text-white hover:border-[#333]"
-            )}
-          >
-            {t.symbol}
-          </button>
-        ))}
+        {searchHistory.length === 0 ? (
+          <span className="text-[10px] items-center text-[#555] font-bold py-1.5 px-1 italic">
+            Belum ada histori pencarian
+          </span>
+        ) : (
+          searchHistory.map(h => (
+            <button
+              key={h}
+              onClick={() => handleQuickSelect(h)}
+              className={cn(
+                "px-4 py-1.5 rounded-xl border text-[10px] font-black uppercase tracking-wider shrink-0 transition-all cursor-pointer",
+                symbol === h 
+                  ? "bg-[var(--color-gold)] text-black border-[var(--color-gold)] shadow-[0_0_15px_rgba(212,175,55,0.25)]" 
+                  : "bg-[#0d0d0d] border-[#151515] text-[#666] hover:text-white hover:border-[#333]"
+              )}
+            >
+              {h}
+            </button>
+          ))
+        )}
       </div>
 
       {/* Timeframe & Custom Date Filter Row */}
@@ -996,15 +1121,90 @@ export const BrokerSummaryDashboard: React.FC = () => {
               </div>
             </div>
 
+            {/* Market Share Dominance Pie Chart */}
+            <div className="bg-[#0b0b0b] border border-[#1a1a1a] rounded-2xl p-6">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-4 border-b border-[#1a1a1a] pb-4">
+                <div>
+                  <h4 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
+                    <PieChartIcon size={14} className="text-[var(--color-gold)]" />
+                    Broker Market Share Dominance
+                  </h4>
+                  <p className="text-[10px] text-[#555] font-bold mt-1">Distribusi gross value transaksi berdasarkan broker partisipan</p>
+                </div>
+                <div className="flex items-center gap-1 bg-black p-1 rounded-xl border border-[#222]">
+                  {(['All', 'Foreign', 'Domestic'] as ('All'|'Foreign'|'Domestic')[]).map(tab => (
+                    <button
+                      key={tab}
+                      onClick={() => setPieChartFilter(tab)}
+                      className={cn(
+                        "px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all uppercase tracking-wider",
+                        pieChartFilter === tab
+                          ? tab === 'Foreign' ? "bg-indigo-500/20 text-indigo-300"
+                            : tab === 'Domestic' ? "bg-rose-500/20 text-rose-300"
+                            : "bg-[#222] text-white"
+                          : "text-[#555] hover:text-white hover:bg-[#111]"
+                      )}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="h-[280px] w-full flex justify-center items-center">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie 
+                      data={pieData} 
+                      cx="50%" 
+                      cy="50%" 
+                      innerRadius={70} 
+                      outerRadius={105} 
+                      paddingAngle={3}
+                      dataKey="value"
+                      stroke="none"
+                      animationBegin={200}
+                      animationDuration={800}
+                    >
+                      {pieData.map((entry, index) => (
+                        <Cell 
+                          key={`cell-${index}`} 
+                          fill={COLORS[index % COLORS.length]} 
+                          className="transition-opacity duration-300 hover:opacity-80"
+                        />
+                      ))}
+                    </Pie>
+                    <RechartsTooltip 
+                      formatter={(val: number) => formatMoney(val)} 
+                      contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid #222', borderRadius: '12px', fontSize: '11px', fontFamily: 'monospace' }}
+                      itemStyle={{ fontWeight: '900' }}
+                    />
+                    <Legend 
+                      verticalAlign="bottom" 
+                      layout="horizontal"
+                      iconType="circle"
+                      iconSize={8}
+                      wrapperStyle={{ fontSize: '10px', fontWeight: 'bold', paddingTop: '15px' }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
             {/* Filter tab for Buyers/Sellers (All, Foreign, Domestic) */}
             <div className="bg-[#0b0b0b] border border-[#1a1a1a] rounded-2xl p-6">
-              <div className="flex justify-between items-center border-b border-[#1a1a1a] pb-4 mb-6">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-[#1a1a1a] pb-4 mb-6 gap-3">
                 <div>
-                  <h3 className="text-sm font-black text-white uppercase tracking-wider">Live Transaction Logs</h3>
-                  <p className="text-[10px] text-[#555] font-semibold mt-1">Detail volume dan rata-rata pembelian per broker</p>
+                  <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                    Live Transaction Logs
+                    <span className="text-[9px] bg-purple-500/10 border border-purple-500/20 text-purple-400 px-2 py-0.5 rounded-full font-bold">
+                      Real-Time BEI
+                    </span>
+                  </h3>
+                  <p className="text-[10px] text-[#555] font-semibold mt-1">Detail volume dan rata-rata pembelian per broker berdasarkan partisipasi pasar</p>
                 </div>
 
-                <div className="flex gap-1.5 bg-[#050505] p-1 border border-[#1a1a1a] rounded-xl">
+                <div className="flex gap-1.5 bg-[#050505] p-1 border border-[#1a1a1a] rounded-xl self-end md:self-auto">
                   {(['All', 'Foreign', 'Domestic'] as const).map(tab => (
                     <button
                       key={tab}
@@ -1040,7 +1240,7 @@ export const BrokerSummaryDashboard: React.FC = () => {
                     <table className="w-full text-left">
                       <thead>
                         <tr className="border-b border-[#141414] text-[9px] font-black text-[#555] uppercase tracking-wider">
-                          <th className="pb-2.5 w-10">BR</th>
+                          <th className="pb-2.5 w-32">BROKER</th>
                           <th className="pb-2.5 text-right">BUY LOT</th>
                           <th className="pb-2.5 text-right">SELL LOT</th>
                           <th className="pb-2.5 text-right">AVG BUY</th>
@@ -1048,21 +1248,35 @@ export const BrokerSummaryDashboard: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#141414]/30">
-                        {filteredBuyers.slice(0, 8).map((buyer, idx) => (
+                        {filteredBuyers.map((buyer, idx) => {
+                          const brInfo = BROKER_NAMES[buyer.broker] || { name: buyer.brokerName || 'Brokerage Firm', type: 'Domestic' };
+                          return (
                           <tr 
                             key={buyer.broker}
                             onClick={() => setSelectedBroker(buyer)}
-                            className="text-xs hover:bg-[#141414]/50 cursor-pointer transition-colors group"
+                            className="broker-summary-row text-xs hover:bg-[#141414]/50 cursor-pointer transition-colors group"
                           >
-                            <td className="py-2.5 font-bold flex items-center gap-1.5">
+                            <td className="py-2.5 font-bold flex items-center gap-2">
                               <span className={cn(
-                                "w-[24px] h-[24px] rounded-md font-mono text-[10px] font-black flex items-center justify-center border",
-                                buyer.type === 'Foreign' 
+                                "w-[24px] h-[24px] shrink-0 rounded-md font-mono text-[10px] font-black flex items-center justify-center border",
+                                brInfo.type === 'Foreign' 
                                   ? "bg-purple-500/10 border-purple-500/25 text-purple-400" 
                                   : "bg-blue-500/10 border-blue-500/25 text-blue-400"
                               )}>
                                 {buyer.broker}
                              </span>
+                             <div className="flex flex-col min-w-0">
+                               <span className="text-[10px] truncate text-[#aaa] group-hover:text-white transition-colors">{brInfo.name}</span>
+                               <div className="flex items-center gap-1.5 mt-0.5">
+                                 <span className={cn("text-[8px] font-black uppercase tracking-wider", brInfo.type === 'Foreign' ? "text-purple-500/70" : "text-blue-500/70")}>{brInfo.type}</span>
+                                 <span className="text-[8px] px-1 py-px rounded-sm bg-[#111] text-[#777] font-mono border border-[#222]" title="Estimated Sub-Transactions (Freq)">
+                                    {buyer.frequency || 1}x
+                                 </span>
+                                 {buyer.isExtremeSwing && (
+                                   <AlertTriangle size={10} className="text-amber-500 animate-pulse" title="Extreme Net-Flow Swing Detected" />
+                                 )}
+                               </div>
+                             </div>
                             </td>
                             <td className="py-2.5 text-right font-mono font-medium text-white">
                               {formatLot(buyer.buyVolume)}
@@ -1073,11 +1287,12 @@ export const BrokerSummaryDashboard: React.FC = () => {
                             <td className="py-2.5 text-right font-mono text-[#888]">
                               {buyer.buyAvg.toLocaleString('id-ID')}
                             </td>
-                            <td className="py-2.5 text-right font-black font-mono text-emerald-400">
+                            <td className="py-2.5 text-right font-black font-mono text-emerald-400 whitespace-nowrap">
                               {formatMoney(buyer.netValue)}
+                              {idx < 5 && <Sparkline data={buyer.trend} color="#34d399" />}
                             </td>
                           </tr>
-                        ))}
+                        )})}
                         {filteredBuyers.length === 0 && (
                           <tr>
                             <td colSpan={5} className="py-8 text-center text-[10px] font-bold text-[#444] uppercase tracking-wider">
@@ -1105,7 +1320,7 @@ export const BrokerSummaryDashboard: React.FC = () => {
                     <table className="w-full text-left">
                       <thead>
                         <tr className="border-b border-[#141414] text-[9px] font-black text-[#555] uppercase tracking-wider">
-                          <th className="pb-2.5 w-10">BR</th>
+                          <th className="pb-2.5 w-32">BROKER</th>
                           <th className="pb-2.5 text-right">BUY LOT</th>
                           <th className="pb-2.5 text-right">SELL LOT</th>
                           <th className="pb-2.5 text-right">AVG SELL</th>
@@ -1113,21 +1328,35 @@ export const BrokerSummaryDashboard: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#141414]/30">
-                        {filteredSellers.slice(0, 8).map((seller, idx) => (
+                        {filteredSellers.map((seller, idx) => {
+                          const brInfo = BROKER_NAMES[seller.broker] || { name: seller.brokerName || 'Brokerage Firm', type: 'Domestic' };
+                          return (
                           <tr 
                             key={seller.broker}
                             onClick={() => setSelectedBroker(seller)}
-                            className="text-xs hover:bg-[#141414]/50 cursor-pointer transition-colors group"
+                            className="broker-summary-row text-xs hover:bg-[#141414]/50 cursor-pointer transition-colors group"
                           >
-                            <td className="py-2.5 font-bold flex items-center gap-1.5">
+                            <td className="py-2.5 font-bold flex items-center gap-2">
                               <span className={cn(
-                                "w-[24px] h-[24px] rounded-md font-mono text-[10px] font-black flex items-center justify-center border",
-                                seller.type === 'Foreign' 
+                                "w-[24px] h-[24px] shrink-0 rounded-md font-mono text-[10px] font-black flex items-center justify-center border",
+                                brInfo.type === 'Foreign' 
                                   ? "bg-purple-500/10 border-purple-500/25 text-purple-400" 
                                   : "bg-blue-500/10 border-blue-500/25 text-blue-400"
                               )}>
                                 {seller.broker}
                               </span>
+                              <div className="flex flex-col min-w-0">
+                               <span className="text-[10px] truncate text-[#aaa] group-hover:text-white transition-colors">{brInfo.name}</span>
+                               <div className="flex items-center gap-1.5 mt-0.5">
+                                 <span className={cn("text-[8px] font-black uppercase tracking-wider", brInfo.type === 'Foreign' ? "text-purple-500/70" : "text-blue-500/70")}>{brInfo.type}</span>
+                                 <span className="text-[8px] px-1 py-px rounded-sm bg-[#111] text-[#777] font-mono border border-[#222]" title="Estimated Sub-Transactions (Freq)">
+                                    {seller.frequency || 1}x
+                                 </span>
+                                 {seller.isExtremeSwing && (
+                                   <AlertTriangle size={10} className="text-rose-500 animate-pulse" title="Extreme Net-Flow Swing Detected" />
+                                 )}
+                               </div>
+                             </div>
                             </td>
                             <td className="py-2.5 text-right font-mono text-[#555]">
                               {formatLot(seller.buyVolume)}
@@ -1138,11 +1367,12 @@ export const BrokerSummaryDashboard: React.FC = () => {
                             <td className="py-2.5 text-right font-mono text-[#888]">
                               {seller.sellAvg.toLocaleString('id-ID')}
                             </td>
-                            <td className="py-2.5 text-right font-black font-mono text-rose-400">
+                            <td className="py-2.5 text-right font-black font-mono text-rose-400 whitespace-nowrap">
                               {formatMoney(Math.abs(seller.netValue))}
+                              {idx < 5 && <Sparkline data={seller.trend} color="#fb7185" />}
                             </td>
                           </tr>
-                        ))}
+                        )})}
                         {filteredSellers.length === 0 && (
                           <tr>
                             <td colSpan={5} className="py-8 text-center text-[10px] font-bold text-[#444] uppercase tracking-wider">
@@ -1156,6 +1386,7 @@ export const BrokerSummaryDashboard: React.FC = () => {
                 </div>
 
               </div>
+
             </div>
 
           </div>
@@ -1193,18 +1424,21 @@ export const BrokerSummaryDashboard: React.FC = () => {
                 </div>
 
                 <div>
-                  <h5 className="font-extrabold text-[#fff] uppercase mb-1">2. Jenis-Jenis Broker Kunci</h5>
+                  <h5 className="font-extrabold text-[#fff] uppercase mb-1">2. Aliran Partisipan Utama (Gold Standard)</h5>
                   <ul className="list-disc list-inside space-y-1 pl-1">
-                    <li><strong className="text-purple-300">Asing Premium (AK, BK, KZ, CS):</strong> Sering menjadi wadah bagi reksadana global dan institusi multinasional luar negeri. Jika broker ini melakukan buyback masif, merupakan tanda mulainya gelombang optimis.</li>
-                    <li><strong className="text-blue-300">Institusi Lokal (DX, OD, CC):</strong> Dioperasikan BUMN dan dana pensiun dalam negeri. Perilakunya seringkali stabil dan terstruktur.</li>
-                    <li><strong className="text-amber-300">Ritel Umum (YP, PD, XC, KK):</strong> Broker yang paling banyak digunakan oleh pedagang harian individual/kecil. Jika retail mendominasi buy, biasanya ada tren penurunan (distribusi dari institusi).</li>
-                    <li><strong className="text-teal-300">Market Maker/Scalper Broker (MG):</strong> Dikenal dengan volume transaksi harian masif namun nilai pemilikan bersih kecil lantaran dipakai scalping kilat.</li>
+                    <li><strong className="text-purple-300">Foreign Capital (Asing):</strong> YP, AK, BK, RX, MS, KZ, ZP, YU, BQ, DR. Menjadi penentu pergerakan dana besar internasional (Foreign Inflow).</li>
+                    <li><strong className="text-blue-300">Domestic Capital (Lokal):</strong> PD, CC, OD, NI, SQ, XC, XL, AZ, LG, DX. Digerakkan institusi, dana pensiun, manajer investasi lokal, dan sekuritas papan atas nasional.</li>
                   </ul>
                 </div>
 
                 <div>
                   <h5 className="font-extrabold text-[#fff] uppercase mb-1">3. Cara Deteksi Akumulasi</h5>
-                  <p className="leading-relaxed">Jika volume pembelian bersih terkonsentrasi sangat tinggi pada 1 hingga 3 broker utama (CR3 &gt; 65%) sementara para penjualnya tersebar sangat luas di puluhan broker ritel kecil, ini adalah tanda anomali <strong>Accumulation (Akumulasi)</strong>. Bandar mengoleksi barang secara merata.</p>
+                  <p className="leading-relaxed">Jika volume pembelian bersih terkonsentrasi sangat tinggi pada 1 hingga 5 broker utama (CR3 &gt; 55% / CR5 &gt; 70%) sementara para penjualnya tersebar luas, ini menandakan fase <strong>Accumulation (Akumulasi)</strong>.</p>
+                </div>
+
+                <div>
+                  <h5 className="font-extrabold text-[#fff] uppercase mb-1">4. Sumber Data & QC Jaminan</h5>
+                  <p className="leading-relaxed">Data ditarik secara dinamis dari portal integrasi <strong>Yahoo Finance API</strong> dan <strong>Google Finance Scraper</strong> yang dipasangkan dengan server database internal kami yang aman dan andal untuk menyajikan rekap harian real-time yang presisi dan berkualitas tinggi.</p>
                 </div>
               </div>
 

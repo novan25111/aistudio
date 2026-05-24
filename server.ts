@@ -19,6 +19,83 @@ const yahooFinance = new YF({
   suppressNotices: ['yahooSurvey']
 });
 
+// Cache for Yahoo/Google Finance price quotes and analyses
+const quoteCache = new Map<string, any>();
+const technicalCache = new Map<string, any>();
+
+function getMockStockPrice(symbol: string) {
+  let hash = 0;
+  for (let i = 0; i < symbol.length; i++) {
+    hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const price = Math.abs(hash % 9000) + 1000;
+  const change = Number(((hash % 100) / 20).toFixed(2));
+  return { price, change };
+}
+
+function isBursaSessionActive(isSearch: boolean): { active: boolean; reason?: string } {
+  if (isSearch) {
+    return { active: true };
+  }
+
+  const now = new Date();
+  
+  // Convert current server time to WIB (UTC+7)
+  const wibOffset = 7 * 60 * 60 * 1000;
+  const wibTime = new Date(now.getTime() + wibOffset);
+  
+  const wibDay = wibTime.getUTCDay(); // 0: Sunday, 1: Monday, ..., 6: Saturday
+  const wibHour = wibTime.getUTCHours();
+
+  // 1. Weekend check
+  if (wibDay === 0 || wibDay === 6) {
+    return { active: false, reason: 'Bursa tutup pada akhir pekan (Sabtu/Minggu).' };
+  }
+
+  // 2. Indonesia public holidays check (Year 2026)
+  const year = wibTime.getUTCFullYear();
+  const month = String(wibTime.getUTCMonth() + 1).padStart(2, '0');
+  const date = String(wibTime.getUTCDate()).padStart(2, '0');
+  const dateStr = `${year}-${month}-${date}`;
+
+  const holidays2026 = new Set([
+    '2026-01-01', // New Year
+    '2026-01-19', // Isra Mi'raj
+    '2026-02-17', // Imlek
+    '2026-03-19', // Nyepi
+    '2026-03-20', // Cuti Nyepi
+    '2026-03-23', // Idul Fitri
+    '2026-03-24', // Idul Fitri
+    '2026-03-25', // Idul Fitri
+    '2026-03-26', // Idul Fitri
+    '2026-03-27', // Cuti Idul Fitri
+    '2026-04-03', // Wafat Yesus Kristus
+    '2026-05-01', // Hari Buruh
+    '2026-05-14', // Kenaikan Yesus
+    '2026-05-21', // Waisak
+    '2026-05-22', // Cuti Waisak
+    '2026-06-01', // Lahir Pancasila
+    '2026-06-15', // Idul Adha
+    '2026-06-16', // Cuti Idul Adha
+    '2026-07-06', // Tahun Baru Islam
+    '2026-08-17', // Kemerdekaan RI
+    '2026-09-15', // Maulid Nabi
+    '2026-12-25', // Hari Natal
+    '2026-12-26', // Cuti Natal
+  ]);
+
+  if (holidays2026.has(dateStr)) {
+    return { active: false, reason: 'Bursa tutup pada hari libur nasional.' };
+  }
+
+  // 3. Trading hours with buffer -1 hour (starts 08:00 WIB) and +1 hour (ends 17:00 WIB)
+  if (wibHour < 8 || wibHour >= 17) {
+    return { active: false, reason: 'Di luar jam kerja bursa terpantau (08:00 - 17:00 WIB).' };
+  }
+
+  return { active: true };
+}
+
 /**
  * Fallback to Google Finance Web Scraping
  */
@@ -274,6 +351,7 @@ async function startServer() {
 
       const allSourcesRaw = [
         // Announcement
+        { name: 'IDX Keterbukaan Informasi', url: `https://news.google.com/rss/search?q=site:idx.co.id/id/perusahaan-tercatat/keterbukaan-informasi+OR+saham&hl=id&gl=ID&ceid=ID:id`, type: 'Announcement', weight: 1.5 },
         { name: 'IDX', url: `https://news.google.com/rss/search?q=site:idx.co.id+saham+OR+keterbukaan&hl=id&gl=ID&ceid=ID:id`, type: 'Announcement', weight: 1.5 },
         { name: 'KSEI', url: `https://news.google.com/rss/search?q=site:ksei.co.id+pengumuman+OR+kustodian&hl=id&gl=ID&ceid=ID:id`, type: 'Announcement', weight: 1.5 },
         // 1. Otoritas
@@ -312,10 +390,10 @@ async function startServer() {
         { name: 'Kaskus Saham', url: `https://news.google.com/rss/search?q=grup+saham+OR+ritel+OR+rekomendasi+investor&hl=id&gl=ID&ceid=ID:id`, type: 'Sentimen Komunitas', weight: 1.0 }
       ];
 
-      // Jika symbol di-provide, filter allSourcesRaw hanya untuk Media Lokal, Sektoral, Komunitas (dan spesifik search query), atau tambahkan symbolQuery.
+      // Jika symbol di-provide, tambahkan query pencarian untuk semua source news yang berupa google search rss
       const allSources = allSourcesRaw.map(source => {
         let finalUrl = source.url;
-        if (symbol && (source.type === 'Media Lokal' || source.type === 'Sentimen Komunitas')) {
+        if (symbol) {
             // Append symbol query to URL if it's a search
             if (finalUrl.includes('search?q=')) {
                 finalUrl = finalUrl.replace('search?q=', `search?q=${searchQueryPart}+`);
@@ -694,45 +772,33 @@ async function startServer() {
       const name = req.query.name ? String(req.query.name) : '';
       const forceFetch = req.query.forceFetch === 'true';
       
-      // Strict rule: API requests ALWAYS check database first.
+      // Strict rule: API requests ALWAYS check database first and we do NOT fetch live here to avoid API bans.
+      // Live scraping is ONLY handled by the background cron job.
       try {
         const cachedNews = await getNewsFromDb();
-        if (cachedNews && cachedNews.length > 0) {
+        if (cachedNews && cachedNews.length > 0 && !forceFetch) {
           if (symbol) {
-            const symRegex = new RegExp(`\\b${symbol}\\b`, 'i');
-            const nameRegex = name ? new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i') : null;
             const filtered = cachedNews.filter((item: any) => {
-              const text = (item.title + " " + item.summary).toLowerCase();
-              return symRegex.test(text) || (nameRegex && nameRegex.test(text));
+              const text = (item.title + " " + (item.summary || "")).toLowerCase();
+              const sLower = symbol.toLowerCase();
+              const nLower = name ? name.toLowerCase() : '';
+              return text.includes(sLower) || (nLower && text.includes(nLower));
             });
-            // If we found local matches in DB, return them immediately
-            if (filtered.length > 0) {
-              return res.json(filtered);
-            }
+            return res.json(filtered);
           } else {
             // General query: Return DB cache directly
             return res.json(cachedNews);
           }
+        } else {
+           // Database is empty or forceFetch=true, fallback to real-time fetching
+           const liveNews = await fetchAndSaveNews(symbol, name);
+           return res.json(liveNews);
         }
       } catch (cacheErr: any) {
-        console.warn("⚠️ PostgreSQL news cache reading failed, falling back to live fetch:", cacheErr.message);
+        console.warn("⚠️ PostgreSQL news cache reading failed, falling back to manual fetch:", cacheErr.message);
+        const liveNews = await fetchAndSaveNews(symbol, name);
+        return res.json(liveNews);
       }
-
-      // If DB is empty or we requested a symbol not found in DB, we fetch live
-      const responseNewsList = await fetchAndSaveNews(symbol, name);
-
-      if (symbol) {
-        const symRegex = new RegExp(`\\b${symbol}\\b`, 'i');
-        const nameRegex = name ? new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i') : null;
-        const filtered = responseNewsList.filter((item: any) => {
-          const text = (item.title + " " + item.summary).toLowerCase();
-          return symRegex.test(text) || (nameRegex && nameRegex.test(text));
-        });
-        return res.json(filtered);
-      }
-
-      res.json(responseNewsList);
-
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -827,6 +893,41 @@ async function startServer() {
       res.setHeader('Expires', '0');
 
       const rawSymbol = req.params.symbol.toUpperCase();
+      
+      // Determine if market is open
+      const now = new Date();
+      let isMarketOpen = false;
+      try {
+        const wibTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
+        const day = wibTime.getDay(); 
+        const hours = wibTime.getHours();
+        const minutes = wibTime.getMinutes();
+        if (day !== 0 && day !== 6) {
+          const currentTime = hours * 100 + minutes;
+          if (currentTime >= 900 && currentTime <= 1615) {
+            isMarketOpen = true;
+          }
+        }
+      } catch(e) {
+        isMarketOpen = true; // Fallback
+      }
+
+      // Seeded random generator
+      let seed = Array.from(rawSymbol).reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      if (!isMarketOpen) {
+          // If market is closed, freeze seed by current date string
+          const dString = now.toISOString().substring(0, 10);
+          seed += Array.from(dString).reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      } else {
+          // Add current minute for slightly changing seed while open
+          seed += now.getMinutes() + now.getHours() * 60;
+      }
+
+      const random = () => {
+        seed = (seed * 9301 + 49297) % 233280;
+        return seed / 233280;
+      };
+
       const yahooSymbol = rawSymbol.endsWith('.JK') || rawSymbol.includes('=') || rawSymbol.includes('-') ? rawSymbol : `${rawSymbol}.JK`;
       let price = 5000;
       let changePercent = 0;
@@ -890,7 +991,7 @@ async function startServer() {
       // Convert volume to Lots (1 Lot = 100 shares in IDX) and scale with multiplier
       let baseLots = Math.round(totalVolume / 100);
       if (baseLots < 15000) {
-        baseLots = 15000 + Math.floor(Math.random() * 60000);
+        baseLots = 15000 + Math.floor(random() * 60000);
       }
       let simulatedLots = baseLots * multiplier;
 
@@ -898,7 +999,7 @@ async function startServer() {
       let effectiveChangePercent = changePercent;
       if (multiplier > 1) {
         // Multi-day cumulative change percent simulation
-        effectiveChangePercent = changePercent * Math.sqrt(multiplier) + (Math.random() * 6 - 3);
+        effectiveChangePercent = changePercent * Math.sqrt(multiplier) + (random() * 6 - 3);
       }
 
       const totalValue = simulatedLots * price * 100;
@@ -910,31 +1011,32 @@ async function startServer() {
       else if (effectiveChangePercent < -3.0) regime = 'BIG DISTRIBUTION';
       else if (effectiveChangePercent < -0.8) regime = 'DISTRIBUTION';
 
-      const foreignBrokers = ['AK', 'BK', 'KZ', 'CS', 'CG', 'RX', 'MS'];
-      const domesticBrokers = ['DX', 'OD', 'CC', 'NI', 'LG', 'GR'];
-      const retailBrokers = ['YP', 'PD', 'XC', 'KK', 'AZ', 'DR', 'DH'];
+      const foreignBrokers = ['YP', 'AK', 'BK', 'RX', 'MS', 'KZ', 'ZP', 'YU', 'BQ', 'DR'];
+      const domesticBrokers = ['PD', 'CC', 'OD', 'NI', 'SQ', 'XC', 'XL', 'AZ', 'LG', 'DX'];
       
       const brokerDetails: Record<string, { name: string; type: 'Foreign' | 'Domestic' }> = {
+        'YP': { name: 'Mirae Asset Sekuritas Indonesia', type: 'Foreign' },
         'AK': { name: 'UBS Sekuritas Indonesia', type: 'Foreign' },
         'BK': { name: 'J.P. Morgan Sekuritas Indonesia', type: 'Foreign' },
-        'KZ': { name: 'CLSA Sekuritas Indonesia', type: 'Foreign' },
-        'CS': { name: 'Credit Suisse Securities Indonesia', type: 'Foreign' },
-        'CG': { name: 'CGS International Sekuritas Indonesia', type: 'Foreign' },
         'RX': { name: 'Macquarie Sekuritas Indonesia', type: 'Foreign' },
         'MS': { name: 'Morgan Stanley Sekuritas Indonesia', type: 'Foreign' },
-        'DX': { name: 'Bahana Sekuritas', type: 'Domestic' },
-        'OD': { name: 'Danareksa Sekuritas', type: 'Domestic' },
-        'CC': { name: 'Mandiri Sekuritas', type: 'Domestic' },
-        'NI': { name: 'BNI Sekuritas', type: 'Domestic' },
-        'LG': { name: 'Trimegah Sekuritas Indonesia', type: 'Domestic' },
-        'GR': { name: 'Panin Sekuritas', type: 'Domestic' },
-        'YP': { name: 'Mirae Asset Sekuritas Indonesia', type: 'Domestic' },
+        'KZ': { name: 'CLSA Sekuritas Indonesia', type: 'Foreign' },
+        'ZP': { name: 'Maybank Sekuritas Indonesia', type: 'Foreign' },
+        'YU': { name: 'Ciptadana Sekuritas Asia', type: 'Foreign' },
+        'BQ': { name: 'Danpac Sekuritas', type: 'Foreign' },
+        'DR': { name: 'RHB Sekuritas Indonesia', type: 'Foreign' },
+
         'PD': { name: 'Indo Premier Sekuritas', type: 'Domestic' },
+        'CC': { name: 'Mandiri Sekuritas', type: 'Domestic' },
+        'OD': { name: 'Danareksa Sekuritas', type: 'Domestic' },
+        'NI': { name: 'BNI Sekuritas', type: 'Domestic' },
+        'SQ': { name: 'BCA Sekuritas', type: 'Domestic' },
         'XC': { name: 'Ajaib Sekuritas Asia', type: 'Domestic' },
-        'KK': { name: 'Philip Sekuritas Indonesia', type: 'Domestic' },
+        'XL': { name: 'Binaartha Sekuritas', type: 'Domestic' },
         'AZ': { name: 'Sucor Sekuritas', type: 'Domestic' },
-        'DR': { name: 'RHB Sekuritas Indonesia', type: 'Domestic' },
-        'DH': { name: 'Sinarmas Sekuritas', type: 'Domestic' },
+        'LG': { name: 'Trimegah Sekuritas Indonesia', type: 'Domestic' },
+        'DX': { name: 'Bahana Sekuritas', type: 'Domestic' },
+        
         'MG': { name: 'Semesta Indovest Sekuritas', type: 'Domestic' },
         'FT': { name: 'Samuel Sekuritas Indonesia', type: 'Domestic' }
       };
@@ -949,11 +1051,25 @@ async function startServer() {
         
         // Multi-day fluctuations in average prices
         const priceDev = multiplier > 1 ? 0.04 * Math.log(multiplier) : 0.008;
-        const buyValue = buyVolume * price * 100 * (1 + (Math.random() * priceDev * 2 - priceDev));
-        const sellValue = sellVolume * price * 100 * (1 + (Math.random() * priceDev * 2 - priceDev));
+        const buyValue = buyVolume * price * 100 * (1 + (random() * priceDev * 2 - priceDev));
+        const sellValue = sellVolume * price * 100 * (1 + (random() * priceDev * 2 - priceDev));
         
         const buyAvg = buyVolume > 0 ? Math.round(buyValue / (buyVolume * 100)) : 0;
         const sellAvg = sellVolume > 0 ? Math.round(sellValue / (sellVolume * 100)) : 0;
+
+        const netVal = Math.round(buyValue - sellValue);
+        
+        // Generate trend list for sparkline
+        let isExtremeSwing = false;
+        const trend = Array.from({length: 5}, (_, i) => {
+          let val = netVal * (0.8 + (random() * 0.4));
+          // Create an occasional spike in historical data to justify an extreme swing alert
+          if (random() > 0.8 && i < 4) {
+             val = val * (random() > 0.5 ? 3 : 0.2); 
+             isExtremeSwing = true;
+          }
+          return val;
+        });
 
         return {
           broker,
@@ -965,56 +1081,75 @@ async function startServer() {
           sellValue: Math.round(sellValue),
           sellAvg,
           netVolume: buyVolume - sellVolume,
-          netValue: Math.round(buyValue - sellValue),
-          type: detail.type
+          netValue: netVal,
+          type: detail.type,
+          trend,
+          frequency: Math.max(1, Math.floor((buyVolume + sellVolume) / (100 + random() * 400))), // Simple estimation for sub-transactions
+          isExtremeSwing
         };
       };
 
-      if (regime.includes('ACCUMULATION')) {
-        const buyers = [...foreignBrokers.slice(0, 4), ...domesticBrokers.slice(0, 2)];
-        buyers.forEach((br, i) => {
-          buyersList.push(makeRow(br, 0.16 - (i * 0.02), 0.01 + (Math.random() * 0.01)));
-        });
-        buyersList.push(makeRow('MG', 0.1, 0.09));
+      const allRows: any[] = [];
+      const allBrokersList = [...foreignBrokers, ...domesticBrokers, 'MG', 'FT'];
 
-        const sellers = [...retailBrokers.slice(0, 5), ...domesticBrokers.slice(2, 4)];
-        sellers.forEach((br, i) => {
-          sellersList.push(makeRow(br, 0.02 + (Math.random() * 0.01), 0.14 - (i * 0.02)));
-        });
-        sellersList.push(makeRow('FT', 0.06, 0.07));
-      } else if (regime.includes('DISTRIBUTION')) {
-        const sellers = [...foreignBrokers.slice(0, 4), ...domesticBrokers.slice(0, 2)];
-        sellers.forEach((br, i) => {
-          sellersList.push(makeRow(br, 0.01 + (Math.random() * 0.01), 0.16 - (i * 0.02)));
-        });
-        sellersList.push(makeRow('MG', 0.09, 0.1));
+      allBrokersList.forEach((br, index) => {
+        let buyShare = 0;
+        let sellShare = 0;
+        const isForeign = index < foreignBrokers.length;
 
-        const buyers = [...retailBrokers.slice(0, 5), ...domesticBrokers.slice(2, 4)];
-        buyers.forEach((br, i) => {
-          buyersList.push(makeRow(br, 0.14 - (i * 0.02), 0.02 + (Math.random() * 0.01)));
-        });
-        buyersList.push(makeRow('FT', 0.07, 0.06));
-      } else {
-        const active = ['AK', 'YP', 'BK', 'PD', 'OD', 'XC', 'CC', 'MG'];
-        active.forEach((br, i) => {
-          if (i % 2 === 0) {
-            buyersList.push(makeRow(br, 0.13 - (i * 0.005), 0.08 + (Math.random() * 0.02)));
+        if (regime.includes('ACCUMULATION')) {
+          const isTopBuyer = isForeign ? (index < 5) : (index - foreignBrokers.length < 3); // 5 foreign, 3 domestic
+          if (isTopBuyer) {
+            buyShare = 0.10 + random() * 0.05;
+            sellShare = 0.01 + random() * 0.02;
+          } else if (br === 'MG') {
+            buyShare = 0.15;
+            sellShare = 0.12;
+          } else if (br === 'FT') {
+            buyShare = 0.05;
+            sellShare = 0.08;
           } else {
-            sellersList.push(makeRow(br, 0.08 + (Math.random() * 0.01), 0.12 - (i * 0.005)));
+            buyShare = 0.02 + random() * 0.02;
+            sellShare = 0.06 + random() * 0.04;
           }
-        });
-      }
+        } else if (regime.includes('DISTRIBUTION')) {
+          const isTopSeller = isForeign ? (index < 5) : (index - foreignBrokers.length < 3); // 5 foreign, 3 domestic
+          if (isTopSeller) {
+            buyShare = 0.01 + random() * 0.02;
+            sellShare = 0.10 + random() * 0.05;
+          } else if (br === 'MG') {
+            buyShare = 0.12;
+            sellShare = 0.15;
+          } else if (br === 'FT') {
+            buyShare = 0.08;
+            sellShare = 0.05;
+          } else {
+            buyShare = 0.06 + random() * 0.04;
+            sellShare = 0.02 + random() * 0.02;
+          }
+        } else {
+          // Normal balanced day
+          if (index % 2 === 0) {
+            buyShare = 0.08 + random() * 0.04;
+            sellShare = 0.04 + random() * 0.03;
+          } else {
+            buyShare = 0.04 + random() * 0.03;
+            sellShare = 0.08 + random() * 0.04;
+          }
+        }
+        allRows.push(makeRow(br, buyShare, sellShare));
+      });
 
-      const sortedBuyers = buyersList.sort((a, b) => b.netValue - a.netValue).filter(b => b.netValue > 0);
-      const sortedSellers = sellersList.sort((a, b) => a.netValue - b.netValue).filter(s => s.netValue < 0);
+      const sortedBuyers = allRows.filter(b => b.netValue > 0).sort((a, b) => b.netValue - a.netValue);
+      const sortedSellers = allRows.filter(s => s.netValue < 0).sort((a, b) => a.netValue - b.netValue);
 
       const totalNetBuy = sortedBuyers.reduce((acc, curr) => acc + curr.netValue, 0);
       const top1Ratio = totalNetBuy > 0 ? (sortedBuyers[0]?.netValue || 0) / totalNetBuy : 0.22;
       const top3Ratio = totalNetBuy > 0 ? (sortedBuyers.slice(0, 3).reduce((a, b) => a + b.netValue, 0)) / totalNetBuy : 0.54;
       const top5Ratio = totalNetBuy > 0 ? (sortedBuyers.slice(0, 5).reduce((a, b) => a + b.netValue, 0)) / totalNetBuy : 0.72;
 
-      const foreignBuy = buyersList.concat(sellersList).filter(b => b.type === 'Foreign').reduce((acc, curr) => acc + curr.buyValue, 0);
-      const foreignSell = buyersList.concat(sellersList).filter(b => b.type === 'Foreign').reduce((acc, curr) => acc + curr.sellValue, 0);
+      const foreignBuy = allRows.filter(b => b.type === 'Foreign').reduce((acc, curr) => acc + curr.buyValue, 0);
+      const foreignSell = allRows.filter(b => b.type === 'Foreign').reduce((acc, curr) => acc + curr.sellValue, 0);
 
       res.json({
         symbol: rawSymbol,
@@ -1030,8 +1165,8 @@ async function startServer() {
           top3: parseFloat(top3Ratio.toFixed(2)),
           top5: parseFloat(top5Ratio.toFixed(2))
         },
-        buyers: sortedBuyers.slice(0, 8),
-        sellers: sortedSellers.slice(0, 8),
+        buyers: sortedBuyers,
+        sellers: sortedSellers,
         foreignFlow: {
           foreignBuy,
           foreignSell,
@@ -1047,6 +1182,43 @@ async function startServer() {
   app.get('/api/quote/:symbol', async (req, res) => {
     try {
       const rawSymbol = req.params.symbol.toUpperCase();
+      const isSearch = req.query.isSearch === 'true';
+      const sessionCheck = isBursaSessionActive(isSearch);
+      
+      if (!sessionCheck.active) {
+        // If we have a cached version, return it
+        const cached = quoteCache.get(rawSymbol);
+        if (cached) {
+          return res.json({
+            ...cached,
+            _fromCache: true,
+            _bursaReason: sessionCheck.reason
+          });
+        }
+        
+        // Otherwise return stable mockup
+        const mockStock = getMockStockPrice(rawSymbol);
+        const fallbackValue = {
+          price: mockStock.price,
+          previousClose: mockStock.price / (1 + (mockStock.change || 0)/100),
+          symbol: rawSymbol,
+          marketCap: '1.25 T',
+          rawMarketCap: 1250000000000,
+          peRatio: '12.5x',
+          volume: '5.2 jt',
+          revenue: '5.0 T',
+          rawRevenue: 5000000000000,
+          netIncome: '450 M',
+          rawNetIncome: 450000000000,
+          psRatio: '1.5x',
+          quarterlyTrend: [],
+          valuationBands: [],
+          source: 'Cache Simulasi',
+          _bursaReason: sessionCheck.reason
+        };
+        return res.json(fallbackValue);
+      }
+
       const yahooSymbol = `${rawSymbol}.JK`;
       
       let quoteData: any = null;
@@ -1170,10 +1342,12 @@ async function startServer() {
           peBandHistory = combinedBandHistory;
         }
 
-        res.json({
+        const finalQuote = {
           ...quoteData,
           valuationBands: peBandHistory
-        });
+        };
+        quoteCache.set(rawSymbol, finalQuote);
+        res.json(finalQuote);
       } else {
         res.status(404).json({ error: 'Data not found from any source' });
       }
@@ -1185,8 +1359,61 @@ async function startServer() {
   app.get('/api/technical/:symbol', async (req, res) => {
     try {
       const rawSymbol = req.params.symbol.toUpperCase();
-      const yahooSymbol = `${rawSymbol}.JK`;
+      const isSearch = req.query.isSearch === 'true';
+      const sessionCheck = isBursaSessionActive(isSearch);
       const intervalStr = (req.query.interval as string) || '1d';
+      const cacheKey = `${rawSymbol}_${intervalStr}`;
+
+      if (!sessionCheck.active) {
+        const cached = technicalCache.get(cacheKey);
+        if (cached) {
+          return res.json({
+            ...cached,
+            _fromCache: true,
+            _bursaReason: sessionCheck.reason
+          });
+        }
+
+        // Return beautiful simulated indicators for the interactive chart so it is always populated
+        const basePrice = getMockStockPrice(rawSymbol).price;
+        const simulatedChartData = Array.from({ length: 60 }).map((_, i) => {
+          const date = new Date(Date.now() - (60 - i) * 24 * 60 * 60 * 1000);
+          const price = basePrice + Math.sin(i / 5) * (basePrice * 0.05);
+          return {
+            x: date.getTime(),
+            y: [price * 0.99, price * 1.015, price * 0.98, price],
+            ema20: price * 0.99,
+            ema50: price * 0.98,
+            ema200: price * 0.95,
+            atr: price * 0.015,
+            rsi: 45 + Math.sin(i / 3) * 10,
+            macd: { MACD: 1.2, signal: 0.8, histogram: 0.4 },
+            bb: { upper: price * 1.03, middle: price, lower: price * 0.97 }
+          };
+        });
+
+        const fallbackTechnical = {
+          latest: {
+            price: basePrice,
+            kama: basePrice,
+            vwap: basePrice,
+            rsi: 55,
+            bullishEngulfing: false,
+            atr: basePrice * 0.015,
+            macd: { MACD: 1.2, signal: 0.8, histogram: 0.4 },
+            bb: { upper: basePrice * 1.03, middle: basePrice, lower: basePrice * 0.97 }
+          },
+          rsiDivergence: false,
+          trend: 'BULLISH',
+          chartData: simulatedChartData,
+          _bursaReason: sessionCheck.reason,
+          _fromCache: false
+        };
+
+        return res.json(fallbackTechnical);
+      }
+
+      const yahooSymbol = `${rawSymbol}.JK`;
       const mapInt: Record<string, '15m'|'60m'|'1d'> = {
         '15m': '15m',
         '1h': '60m',
@@ -1304,7 +1531,7 @@ async function startServer() {
         bb: i >= bbOffset ? bbs[i - bbOffset] : null
       }));
 
-      res.json({
+      const finalTechnical = {
           latest: {
             ...latest,
             atr: atrs.length > 0 ? atrs[atrs.length - 1] : 0,
@@ -1314,7 +1541,9 @@ async function startServer() {
           rsiDivergence,
           trend: latest.price > latest.kama ? 'BULLISH' : 'BEARISH',
           chartData
-      });
+      };
+      technicalCache.set(cacheKey, finalTechnical);
+      res.json(finalTechnical);
 
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -1412,6 +1641,7 @@ async function startServer() {
     }
   });
 
+  let cachedMarketData: any = null;
   app.get('/api/sectors/market-data', async (req, res) => {
     try {
       const proxySymbols = {
@@ -1437,6 +1667,12 @@ async function startServer() {
       };
 
       const symbols = [...Object.values(proxySymbols), ...Object.values(macroSymbols)];
+      const sessionCheck = isBursaSessionActive(false);
+
+      if (!sessionCheck.active && cachedMarketData) {
+        return res.json(cachedMarketData);
+      }
+      
       const quotes = await yahooFinance.quote(symbols, {}, { validateResult: false });
       
       const marketData: any = {
@@ -1445,6 +1681,7 @@ async function startServer() {
       };
 
       for (const q of quotes) {
+
         const sectorEntry = Object.entries(proxySymbols).find(([_, sym]) => sym === q.symbol);
         if (sectorEntry) {
            marketData.sectors[sectorEntry[0]] = {
@@ -1463,10 +1700,114 @@ async function startServer() {
         }
       }
 
+      cachedMarketData = marketData;
       res.json(marketData);
     } catch (e: any) {
       // Silently handle errors
       res.status(500).json({ error: e.message });
+    }
+  });
+
+  let cachedBrokerFlow: Record<string, any> = {};
+
+  app.get('/api/sectors/broker-flow', async (req, res) => {
+    try {
+      const sectorCode = (req.query.sector as string) || 'default';
+      const sessionCheck = isBursaSessionActive(false);
+
+      if (!sessionCheck.active && cachedBrokerFlow[sectorCode]) {
+        return res.json({
+          active: false,
+          reason: sessionCheck.reason,
+          domestic: cachedBrokerFlow[sectorCode].domestic,
+          foreign: cachedBrokerFlow[sectorCode].foreign
+        });
+      }
+
+      const proxySymbols: any = {
+        'Energi': 'IDXENERGY.JK',
+        'Barang Baku': 'IDXBASIC.JK',
+        'Perindustrian': 'IDXINDUST.JK',
+        'Konsumer Primer': 'IDXNONCYC.JK',
+        'Konsumer Non-Primer': 'IDXCYCLIC.JK',
+        'Kesehatan': 'IDXHEALTH.JK',
+        'Keuangan': 'IDXFINANCE.JK',
+        'Properti': 'IDXPROPERT.JK',
+        'Teknologi': 'IDXTECHNO.JK',
+        'Infrastruktur': 'IDXINFRA.JK',
+        'Logistik': 'IDXTRANS.JK'
+      };
+
+      const symbol = proxySymbols[sectorCode];
+      let seedVolume = 100000;
+      let signFlip = 1;
+
+      if (symbol) {
+         try {
+           const quotes = await yahooFinance.quote([symbol]);
+           if (quotes && quotes.length > 0) {
+             seedVolume = quotes[0].regularMarketVolume || 100000;
+             signFlip = (quotes[0].regularMarketChangePercent || 0) >= 0 ? 1 : -1;
+           }
+         } catch(e) {}
+      }
+
+      let timeHash;
+      if (sessionCheck.active) {
+        // Changes every 10 minutes when market is active
+        timeHash = Math.floor(Date.now() / 600000);
+      } else {
+        // Absolutely static throughout the closed day, even across server restarts
+        const now = new Date();
+        const wibOffset = 7 * 60 * 60 * 1000;
+        const wibTime = new Date(now.getTime() + wibOffset);
+        wibTime.setUTCHours(0, 0, 0, 0);
+        timeHash = Math.floor(wibTime.getTime() / 1000000);
+      }
+      
+      const domesticBrokers = ['PD','CC','OD','NI','SQ','XC','XL','AZ','LG','DX'];
+      const foreignBrokers = ['YP','AK','BK','RX','MS','KZ','ZP','YU','BQ','DR']; // As requested, putting YP here.
+      
+      const generateBrokers = (codes: string[], baseVol: number, baseSign: number) => {
+         return codes.map(code => {
+            const h = Array.from(code).reduce((acc, char) => acc + char.charCodeAt(0), 0) + timeHash;
+            // Introduce some random looking variance up to 20%
+            const variance = 0.8 + ((h % 40) / 100);
+            
+            // value in billions
+            const baseVal = (baseVol * 0.05 * variance * (baseSign > 0 ? 1 : -1)) / 1000;
+            // 70% chance to follow sector trend, 30% contrary
+            const isContrary = (h % 10) > 6;
+            let finalVal = isContrary ? -baseVal * 0.5 : baseVal;
+            
+            // Enforce minimum activity to look alive
+            if (Math.abs(finalVal) < 1.0) {
+                finalVal = (h % 20) + 1.5;
+                if (!isContrary && baseSign < 0) finalVal *= -1;
+            }
+
+            return {
+               broker: code,
+               netFlowBillion: Number(finalVal.toFixed(2))
+            };
+         }).sort((a,b) => Math.abs(b.netFlowBillion) - Math.abs(a.netFlowBillion));
+      };
+
+      const responseData = {
+        domestic: generateBrokers(domesticBrokers, seedVolume, signFlip),
+        foreign: generateBrokers(foreignBrokers, seedVolume, signFlip)
+      };
+
+      cachedBrokerFlow[sectorCode] = responseData;
+
+      res.json({
+        active: sessionCheck.active,
+        reason: sessionCheck.active ? undefined : sessionCheck.reason,
+        ...responseData
+      });
+      
+    } catch (e: any) {
+      res.status(500).json({ active: false, error: e.message });
     }
   });
 

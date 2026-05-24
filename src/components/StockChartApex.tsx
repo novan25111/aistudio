@@ -20,7 +20,7 @@ export function StockChartApex({ symbol, height = 300, type = 'candlestick', sho
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`/api/technical/${symbol}?interval=1d`);
+        const res = await fetch(`/api/technical/${symbol}?interval=1d&isSearch=true`);
         if (res.ok) {
           const data = await res.json();
           if (data.chartData) {

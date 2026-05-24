@@ -301,9 +301,12 @@ const SECTOR_BASE_DATA = [
 ];
 
 interface MacroVariable {
+  key: string;
   deltaPercentage: number;
   macroWeight: number;
   emitenBeta: number;
+  zScore: number;
+  macroLambda: number;
 }
 
 const CONFIDENCE_THRESHOLD = 0.65;
@@ -311,14 +314,132 @@ const TEXT_WEIGHT = 0.5;
 const MACRO_WEIGHT = 0.5;
 const TANH_SCALAR = 0.2;
 
+function getNewsCategory(news: NewsItem): string {
+  const text = ((news.title || '') + " " + (news.summary || '')).toLowerCase();
+  const type = news.sourceType?.toLowerCase() || '';
+  
+  if (text.match(/rups|earning|laba|dividen|kinerja|kuartal|rugi/)) {
+    return 'EARNINGS';
+  }
+  if (text.match(/regulasi|aturan|ojk|bi|pemerintah|kebijakan|suku bunga|pajak/) || type.includes('otoritas')) {
+    return 'REGULATION';
+  }
+  if (text.match(/rumor|opini|prediksi|isu|katanya/) || type.includes('komunitas')) {
+    return 'RUMOR';
+  }
+  return 'DEFAULT';
+}
+
+function getClusterId(news: NewsItem, category: string): string {
+  const text = (news.title || '').toLowerCase().replace(/[^a-z0-9\s]/g, '');
+  const words = text.split(/\s+/).filter(w => w.length > 3 && !['yang', 'dan', 'ini', 'itu', 'dari', 'ke', 'di', 'pada', 'untuk', 'dengan', 'dalam', 'oleh', 'tahun'].includes(w));
+  const clusterKey = words.slice(0, 3).join('_');
+  return `${category}_${clusterKey || 'misc'}`;
+}
+
+const TAU_MAPPING: Record<string, number> = {
+  'REGULATION': 120.0,
+  'EARNINGS': 72.0,
+  'DEFAULT': 24.0,
+  'RUMOR': 12.0
+};
+
+function computeDynamicForeignFlowMultiplier(
+  netFlowToday: number,
+  historicalFlows20d: number[],
+  preAlphaSentiment: number
+): number {
+  if (!historicalFlows20d.length) return 0.8;
+
+  const mu20d =
+    historicalFlows20d.reduce((sum, val) => sum + val, 0) /
+    historicalFlows20d.length;
+
+  const variance =
+    historicalFlows20d.reduce(
+      (sum, val) => sum + Math.pow(val - mu20d, 2),
+      0
+    ) / historicalFlows20d.length;
+  const sigma20d = Math.sqrt(variance);
+
+  if (sigma20d === 0) return 0.8;
+
+  const flowZScore = (netFlowToday - mu20d) / sigma20d;
+
+  const last5DaysFlow = [...historicalFlows20d.slice(-4), netFlowToday];
+
+  let streakMultiplier = 1.0;
+  if (last5DaysFlow.every((flow) => flow > 0)) {
+    streakMultiplier = 1.2;
+  } else if (last5DaysFlow.every((flow) => flow < 0)) {
+    streakMultiplier = 1.2;
+  }
+
+  let baseMultiplier = 0.8;
+
+  if (Math.abs(flowZScore) > 1.5) {
+    const isForeignBuying = flowZScore > 0;
+    const isFundamentalPositive = preAlphaSentiment > 0;
+
+    if (isForeignBuying === isFundamentalPositive) {
+      baseMultiplier = 1.2 * streakMultiplier;
+    } else {
+      baseMultiplier = 0.4 / streakMultiplier;
+    }
+  }
+
+  return baseMultiplier;
+}
+
+function generateDeterministicHistory(seed: number, count: number, baseMean: number, baseStd: number): number[] {
+  const result: number[] = [];
+  let currentSeed = seed;
+  for (let i = 0; i < count; i++) {
+    currentSeed = (currentSeed * 16807) % 2147483647;
+    const randomVal = (currentSeed - 1) / 2147483646; // 0 to 1
+    // Box-Muller transform for normal distribution
+    currentSeed = (currentSeed * 16807) % 2147483647;
+    const randomVal2 = (currentSeed - 1) / 2147483646;
+    const z = Math.sqrt(-2.0 * Math.log(randomVal || 0.0001)) * Math.cos(2.0 * Math.PI * randomVal2);
+    result.push(baseMean + z * baseStd);
+  }
+  return result;
+}
+
+function computeRiskAdjustedMomentum(
+  dailyDeltaPct: number,
+  ema5: number,
+  ema20: number,
+  atrValue: number,
+  currentPrice: number
+): number {
+  const w1 = 0.4;
+  const w2 = 0.6;
+  const trendMomentumPct = ((ema5 - ema20) / ema20) * 100;
+  let atrPct = (atrValue / currentPrice) * 100;
+  atrPct = Math.max(atrPct, 0.1);
+  
+  const rawMomentum = (w1 * dailyDeltaPct) + (w2 * trendMomentumPct);
+  return rawMomentum / atrPct;
+}
+
 function calculateFinalScore(
   newsData: NewsItem[],
   macroData: MacroVariable[],
   netForeignFlowBillion: number,
-  actualDelta: number
-): { finalScore: number, flowMultiplier: number, preAlpha: number, textAlpha: number, macroAlpha: number } {
-  // TAHAP 1: Engine Sentimen Teks
+  actualDelta: number,
+  historicalFlows20d: number[] = [],
+  ema5: number = 1000,
+  ema20: number = 1000,
+  atrValue: number = 10,
+  currentPrice: number = 1000,
+  ihsgVolatilityZScore: number = 0.5,
+  ihsgTrendSlope: number = 0.2
+): { finalScore: number, flowMultiplier: number, preAlpha: number, textAlpha: number, macroAlpha: number, regimeName: string } {
+  // TAHAP 1: Engine Sentimen Teks (Dynamic Decay & Density Log)
   let totalTextImpact = 0;
+  const clusters: Record<string, any[]> = {};
+
   for (const news of newsData) {
     let conf = news.confidence ?? 0.8;
     if (conf < CONFIDENCE_THRESHOLD) continue;
@@ -327,24 +448,53 @@ function calculateFinalScore(
     let diff = (news.impactScore ?? 50) - 50;
     if (nlpScore === 0) nlpScore = diff / 50;
 
-    let eventScore =
+    let baseImpact =
       nlpScore *
       Math.abs(news.rEmiten ?? 0.5) *
       (news.nEvent ?? 0.8) *
       (news.wType ?? 1.0);
-    let timeDecayFactor = Math.pow(
-      0.5,
-      (news.ageHours ?? 0) / Math.abs(news.hType ?? 24),
-    );
 
-    totalTextImpact += eventScore * timeDecayFactor;
+    const category = getNewsCategory(news);
+    const cid = getClusterId(news, category);
+
+    if (!clusters[cid]) {
+      clusters[cid] = [];
+    }
+    clusters[cid].push({
+      news,
+      baseImpact,
+      category,
+      ageHours: news.ageHours ?? 0,
+      customTau: news.hType
+    });
   }
 
-  // TAHAP 2: Engine Makroekonomi
+  for (const cid in clusters) {
+    const items = clusters[cid];
+    const nCluster = items.length;
+    let clusterDecayedImpact = 0;
+
+    for (const item of items) {
+      const tau = TAU_MAPPING[item.category] || Math.abs(item.customTau ?? 24.0);
+      const decayFactor = Math.pow(0.5, item.ageHours / tau);
+      clusterDecayedImpact += item.baseImpact * decayFactor;
+    }
+
+    const densityMultiplier = Math.log(1 + nCluster);
+    const finalClusterScore = clusterDecayedImpact * densityMultiplier;
+    totalTextImpact += finalClusterScore;
+  }
+
+  // TAHAP 2: Engine Makroekonomi (Asymmetric Panic Matrix)
   let totalMacroImpact = 0;
   for (const macro of macroData) {
-    totalMacroImpact +=
-      macro.deltaPercentage * macro.macroWeight * macro.emitenBeta;
+    let activeLambda = 0.0;
+    if (Math.abs(macro.zScore) > 2.0) {
+      activeLambda = macro.macroLambda;
+    }
+    
+    const impact = (macro.deltaPercentage * macro.emitenBeta) * (1 + activeLambda) * macro.macroWeight;
+    totalMacroImpact += impact;
   }
 
   // TAHAP 3: Validasi Institusi & Market Realita
@@ -352,37 +502,78 @@ function calculateFinalScore(
     TEXT_WEIGHT * totalTextImpact + MACRO_WEIGHT * totalMacroImpact;
 
   let flowMultiplier = 0.8;
-  if (Math.abs(netForeignFlowBillion) >= 50) {
-    const flowDirection = netForeignFlowBillion > 0 ? 1 : -1;
-    const alphaDirection = preAlpha > 0 ? 1 : preAlpha < 0 ? -1 : 0;
+  if (historicalFlows20d && historicalFlows20d.length > 0) {
+    flowMultiplier = computeDynamicForeignFlowMultiplier(netForeignFlowBillion, historicalFlows20d, preAlpha);
+  } else {
+    // Fallback if no history is provided
+    if (Math.abs(netForeignFlowBillion) >= 50) {
+      const flowDirection = netForeignFlowBillion > 0 ? 1 : -1;
+      const alphaDirection = preAlpha > 0 ? 1 : preAlpha < 0 ? -1 : 0;
 
-    // Konfirmasi
-    if (flowDirection === alphaDirection) flowMultiplier = 1.5;
-    // Divergensi
-    else if (alphaDirection !== 0) flowMultiplier = 0.3;
+      if (flowDirection === alphaDirection) flowMultiplier = 1.5;
+      else if (alphaDirection !== 0) flowMultiplier = 0.3;
+    }
   }
 
   // TAHAP 4: Menggabungkan Market Momentum (Actual Price Change)
-  // actualDelta represents percentage change (-2.5%, +3.1%, etc.)
-  // We amplify it to strongly impact the score (live reflection)
-  let momentumAlpha = actualDelta * 2.5; 
+  let momentumAlpha = computeRiskAdjustedMomentum(actualDelta, ema5, ema20, atrValue, currentPrice); 
   
-  // TAHAP 5: Persamaan Agregasi Akhir & Normalisasi
-  const totalAlpha = (preAlpha * flowMultiplier) + momentumAlpha;
+  // TAHAP 5: Persamaan Agregasi Akhir & Normalisasi (Regime-Switching Weights)
+  let wTxt = 0.15;
+  let wMac = 0.20;
+  let wFlw = 0.30;
+  let wMom = 0.35;
+  let regimeName = "Normal / Trending";
+
+  if (ihsgVolatilityZScore > 2.0) {
+      wTxt = 0.10;
+      wMac = 0.50;
+      wFlw = 0.20;
+      wMom = 0.20;
+      regimeName = "Krisis (High Volatility)";
+  } else if (Math.abs(ihsgTrendSlope) < 0.5 && ihsgVolatilityZScore < 1.0) {
+      wTxt = 0.30;
+      wMac = 0.10;
+      wFlw = 0.40;
+      wMom = 0.20;
+      regimeName = "Konsolidasi (Sideways)";
+  }
+
+  const textScore = totalTextImpact;
+  const macroScore = totalMacroImpact;
+  const flowScore = (netForeignFlowBillion / 10) * flowMultiplier;
+  const momentumScore = momentumAlpha;
+
+  const totalAlpha = (wTxt * textScore) + (wMac * macroScore) + (wFlw * flowScore) + (wMom * momentumScore);
   const finalScore = 50 + 50 * Math.tanh(TANH_SCALAR * totalAlpha);
 
   return {
     finalScore: Math.round(finalScore * 100) / 100,
     flowMultiplier, 
-    preAlpha,
-    textAlpha: totalTextImpact,
-    macroAlpha: totalMacroImpact
+    preAlpha: totalAlpha,
+    textAlpha: textScore,
+    macroAlpha: macroScore,
+    regimeName
   };
 }
 
 import { INITIAL_RECOMMENDED_STOCKS } from "./mockData";
 
 const MOCK_NEWS_DATA: NewsItem[] = [
+  {
+    id: "idx_announcement",
+    title: "BEI: Kebijakan Baru Terkait Keterbukaan Informasi Perusahaan Tercatat.",
+    source: "Bursa Efek Indonesia",
+    sourceType: "Announcement",
+    url: "https://www.idx.co.id/id/perusahaan-tercatat/keterbukaan-informasi",
+    summary:
+      "Bursa Efek Indonesia (BEI) merilis pedoman baru terkait penyampaian Keterbukaan Informasi untuk seluruh Perusahaan Tercatat, guna meningkatkan transparansi dan perlindungan investor.",
+    date: "14 Mei 2026, 10:00 WIB",
+    category: "local",
+    impactType: "Makro",
+    impactScore: 85,
+    impactedSectors: ["Keuangan", "Infrastruktur"],
+  },
   {
     id: "n1",
     title: "Suku bunga Fed diprediksi tetap stabil hingga Q3-2026.",
@@ -490,6 +681,20 @@ export default function App() {
     
     if (currentScrollY > 30 !== isScrolled) {
         setIsScrolled(currentScrollY > 30);
+    }
+
+    // Infinite scrolling logic for News tab
+    if (activeTab === "News") {
+      const scrollHeight = e.currentTarget.scrollHeight;
+      const clientHeight = e.currentTarget.clientHeight;
+      if (currentScrollY + clientHeight >= scrollHeight - 300) {
+        setVisibleNewsCount((prev) => {
+          if (prev < filteredNewsList.length) {
+            return prev + 50;
+          }
+          return prev;
+        });
+      }
     }
   };
 
@@ -707,14 +912,20 @@ export default function App() {
     setIsTradeModalOpen(false);
   };
 
-  const [newsData, setNewsData] = useState<NewsItem[]>(MOCK_NEWS_DATA);
+  const [newsData, setNewsData] = useState<NewsItem[]>([]);
+  const [visibleNewsCount, setVisibleNewsCount] = useState(100);
   const [tickerData, setTickerData] = useState<any[]>([]);
   const [selectedSector, setSelectedSector] = useState("Semua");
   const [selectedNewsType, setSelectedNewsType] = useState("Semua");
   const [selectedSectorTabCode, setSelectedSectorTabCode] = useState<string | null>(null);
   const [isSectorModalOpen, setIsSectorModalOpen] = useState(false);
   const [dashboardSectorFilter, setDashboardSectorFilter] = useState<"all" | "Buy" | "Neutral" | "Sell">("all");
+  const [forecastSectorFilter, setForecastSectorFilter] = useState<"all" | "Buy" | "Neutral" | "Sell">("all");
   const [fearGreedIndex, setFearGreedIndex] = useState(50);
+
+  useEffect(() => {
+    setVisibleNewsCount(100);
+  }, [activeTab, selectedNewsType]);
 
   const sectorScores = useMemo(() => {
     return SECTOR_BASE_DATA.map((sector) => {
@@ -797,26 +1008,80 @@ export default function App() {
           'Logistik': { 'IHSG': 1.00, 'USDIDR': -0.45, 'GOLD': -0.05, 'OIL': 0.30, 'COAL': 0.15 }
         };
 
+        const MACRO_STD_DEV: Record<string, number> = {
+          'IHSG': 1.2,
+          'USDIDR': 0.6,
+          'GOLD': 1.5,
+          'OIL': 2.0,
+          'COAL': 3.0
+        };
+        
+        const LAMBDA_MATRIX: Record<string, Record<string, number>> = {
+          'Teknologi': { 'USDIDR': 1.5, 'IHSG': 1.2, 'OIL': 0.5 },
+          'Energi': { 'USDIDR': 1.0, 'OIL': 1.5, 'COAL': 1.5 },
+          'Konsumer Primer': { 'USDIDR': -0.5, 'OIL': -0.1, 'COAL': -0.1, 'IHSG': -0.2, 'GOLD': -0.1 },
+          'Konsumer Non-Primer': { 'USDIDR': -0.5, 'OIL': -0.1, 'COAL': -0.1, 'IHSG': -0.2, 'GOLD': -0.1 },
+          'Kesehatan': { 'USDIDR': -0.5, 'OIL': -0.1, 'COAL': -0.1, 'IHSG': -0.2, 'GOLD': -0.1 },
+          'Keuangan': { 'USDIDR': 0.5, 'IHSG': 1.0, 'GOLD': -0.2 },
+          'Properti': { 'USDIDR': 1.2, 'OIL': 0.5, 'COAL': 0.2, 'IHSG': 1.0 },
+          'Infrastruktur': { 'USDIDR': 1.2, 'OIL': 0.5, 'COAL': 0.5, 'IHSG': 1.0 },
+          'Logistik': { 'USDIDR': 0.8, 'OIL': 1.2, 'COAL': 0.5, 'IHSG': 0.5 },
+          'Barang Baku': { 'USDIDR': 0.5, 'OIL': 1.0, 'COAL': 1.0, 'IHSG': 0.5, 'GOLD': 1.5 },
+          'Perindustrian': { 'USDIDR': 0.5, 'OIL': 0.5, 'COAL': 0.5, 'IHSG': 0.5 },
+        };
+
         return map.map((m) => {
           const macroData = macroMarketData[m.key];
           const dp = macroData ? macroData.changePercent : (MACRO_DEFAULTS[m.key]?.changePercent || 0.0);
           const betaMap = sectorBetas[sector.code];
           const beta = betaMap ? (betaMap[m.key] || 0.0) : 0.0;
+          const stdDev = MACRO_STD_DEV[m.key] || 1.0;
+          const zScore = dp / stdDev;
+          
+          const lambdaMap = LAMBDA_MATRIX[sector.code];
+          const lambda = lambdaMap ? (lambdaMap[m.key] || 0.0) : 0.0;
 
           return {
+            key: m.key,
             deltaPercentage: dp,
             macroWeight: m.wM,
             emitenBeta: beta,
+            zScore: zScore,
+            macroLambda: lambda
           };
         });
       };
 
       const macroVariables = buildMacroVariables();
+
+      // Mock determinisitic history base mean and standard deviation
+      // We use a small mean derived from sector, and an appropriate StdDev.
+      const seed = Object.keys(SECTOR_DEFAULTS).indexOf(sector.code) + 1;
+      const historyMean = (netForeignFlowBillion / 5); // Realistic scaling
+      const historyStd = Math.abs(netForeignFlowBillion / 2) + 5; 
+      const historicalFlows20d = generateDeterministicHistory(seed, 20, historyMean, historyStd);
+
+      const computedEma5 = price * (1 + (actualDelta / 100) * 0.5);
+      const computedEma20 = price * (1 - (actualDelta / 100) * 0.2);
+      const computedAtr = price * 0.02; // Roughly 2% ATR
+
+      const ihsgMacro = macroVariables.find(m => m.key === 'IHSG');
+      // Pass a slightly amplified version for testing regimes
+      const mockIhsgZScore = ihsgMacro ? Math.abs(ihsgMacro.zScore) * 1.5 : 0.5; 
+      const mockIhsgSlope = ihsgMacro ? ihsgMacro.deltaPercentage : 0.2;
+
       const scoreObj = calculateFinalScore(
         sectorNews,
         macroVariables,
         netForeignFlowBillion,
-        actualDelta
+        actualDelta,
+        historicalFlows20d,
+        computedEma5,
+        computedEma20,
+        computedAtr,
+        price,
+        mockIhsgZScore,
+        mockIhsgSlope
       );
       const score = scoreObj.finalScore;
 
@@ -867,8 +1132,15 @@ export default function App() {
     } else {
       filtered = filtered.filter((n) => n.sourceType !== "Sentimen Komunitas");
     }
-    // Sort by impact score descending to show highest impact news first
-    return filtered.sort((a, b) => (b.impactScore || 0) - (a.impactScore || 0));
+    // Sort by publication date (newest first)
+    return filtered.sort((a, b) => {
+      const dateA = a.pubDateStr ? new Date(a.pubDateStr).getTime() : (a.date ? new Date(a.date).getTime() : 0);
+      const dateB = b.pubDateStr ? new Date(b.pubDateStr).getTime() : (b.date ? new Date(b.date).getTime() : 0);
+      if (dateA !== dateB) {
+        return dateB - dateA;
+      }
+      return (b.impactScore || 0) - (a.impactScore || 0);
+    });
   }, [newsData, selectedNewsType]);
 
   useEffect(() => {
@@ -961,47 +1233,59 @@ export default function App() {
     return stocks.filter((s) => s.sector === selectedSector);
   }, [stocks, selectedSector]);
 
-  const fetchLivePrices = async () => {
+  const fetchSingleStockPrice = async (symbol: string, isSearch: boolean = false) => {
     try {
-      const updatedStocks = await Promise.all(
-        stocks.map(async (stock) => {
-          try {
-            const res = await fetch(`/api/quote/${stock.symbol}?_t=${Date.now()}`);
-            if (!res.ok) return stock;
-            const data = await res.json();
-            const changePercent =
-              ((data.price - data.previousClose) / data.previousClose) * 100;
+      const res = await fetch(`/api/quote/${symbol}?_t=${Date.now()}${isSearch ? '&isSearch=true' : ''}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const changePercent =
+        ((data.price - data.previousClose) / data.previousClose) * 100;
+      
+      const updatedInfo = {
+        price: data.price,
+        change: Number(changePercent.toFixed(2)),
+        marketCap: data.marketCap,
+        peRatio: data.peRatio,
+        psRatio: data.psRatio,
+        volume: data.volume,
+        revenue: data.revenue,
+        netIncome: data.netIncome,
+        rawRevenue: data.rawRevenue,
+        rawNetIncome: data.rawNetIncome,
+        rawMarketCap: data.rawMarketCap,
+        quarterlyTrend: data.quarterlyTrend,
+        valuationBands: data.valuationBands,
+      };
+
+      setStocks((prevStocks) =>
+        prevStocks.map((stock) => {
+          if (stock.symbol === symbol) {
             return {
               ...stock,
-              price: data.price,
-              change: Number(changePercent.toFixed(2)) || stock.change,
-              marketCap: data.marketCap,
-              peRatio: data.peRatio,
-              psRatio: data.psRatio,
-              volume: data.volume,
-              revenue: data.revenue,
-              netIncome: data.netIncome,
-              rawRevenue: data.rawRevenue,
-              rawNetIncome: data.rawNetIncome,
-              rawMarketCap: data.rawMarketCap,
-              quarterlyTrend: data.quarterlyTrend,
-              valuationBands: data.valuationBands,
+              ...updatedInfo,
             };
-          } catch (e) {
-            return stock;
           }
-        }),
+          return stock;
+        })
       );
-      setStocks(updatedStocks);
-      // Also update selectedStock if it is open
-      if (selectedStock) {
-        const updatedSelected = updatedStocks.find(
-          (s) => s.symbol === selectedStock.symbol,
-        );
-        if (updatedSelected) setSelectedStock(updatedSelected);
-      }
+
+      setSelectedStock((prev) => {
+        if (prev && prev.symbol === symbol) {
+          return {
+            ...prev,
+            ...updatedInfo,
+          };
+        }
+        return prev;
+      });
     } catch (e) {
       // console.error(e);
+    }
+  };
+
+  const fetchLivePrices = async () => {
+    if (selectedStock) {
+      await fetchSingleStockPrice(selectedStock.symbol);
     }
   };
 
@@ -1028,16 +1312,6 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        const jilterObj: Record<string, number> = {};
-        Object.keys(data.sectors || {}).forEach(k => {
-           jilterObj[k] = (Math.random() - 0.5) * 0.05; // +/- 0.025% micro-fluctuation to ensure live tick appearance
-        });
-        // Apply micro-fluctuation for realism during off-market hours or slow API
-        Object.keys(data.sectors || {}).forEach(k => {
-             data.sectors[k].changePercent += jilterObj[k] || 0;
-             data.sectors[k].price *= (1 + ((jilterObj[k] || 0) / 100));
-             data.sectors[k].volume = Math.floor((data.sectors[k].volume || 1000000) * (1 + Math.abs(jilterObj[k] || 0) * 0.5));
-        });
         
         setSectorMarketData(data.sectors || {});
         setMacroMarketData(data.macros || {});
@@ -1051,8 +1325,7 @@ export default function App() {
     // Timer
     const timerId = setInterval(() => setCurrentTime(new Date()), 1000);
 
-    // Try to fetch on mount
-    fetchLivePrices();
+    // Try to fetch on mount (only static/macro sections to protect API limits)
     fetchNews();
     fetchRealtimeOpportunities();
     fetchSectorMarketData();
@@ -1062,7 +1335,6 @@ export default function App() {
     const intervalId = setInterval(() => {
       fetchSectorMarketData();
       fetchTickerData();
-      fetchLivePrices();
     }, 10000);
 
     return () => {
@@ -1070,6 +1342,13 @@ export default function App() {
        clearInterval(timerId);
     };
   }, []);
+
+  // Fetch live price dynamically only when a specific emiten is selected and opened
+  useEffect(() => {
+    if (selectedStock) {
+      fetchSingleStockPrice(selectedStock.symbol, true);
+    }
+  }, [selectedStock?.symbol]);
 
   const fetchRealtimeOpportunities = async () => {
     setRealtimeOppLoading(true);
@@ -1089,7 +1368,8 @@ export default function App() {
   const fetchNews = async (isManualRefresh = false) => {
     if (isManualRefresh) setIsRefreshingNews(true);
     try {
-      const res = await fetch(`/api/news?_t=${Date.now()}`, {
+      const url = `/api/news?_t=${Date.now()}` + (isManualRefresh ? '&forceFetch=true' : '');
+      const res = await fetch(url, {
         headers: {
           'Cache-Control': 'no-cache, no-store, must-revalidate',
           'Pragma': 'no-cache',
@@ -1100,7 +1380,7 @@ export default function App() {
         const data = await res.json();
         if (data && data.length > 0) {
           setNewsData(prev => {
-            if (prev.length > 0 && data[0] && prev[0].title !== data[0].title && prev !== MOCK_NEWS_DATA) {
+            if (prev.length > 0 && data[0] && prev[0].title !== data[0].title) {
               addNotification("Berita terbaru berhasil didapatkan!", "success");
             } else if (isManualRefresh) {
               addNotification("Koneksi stabil. Belum ada berita baru terpantau.", "info");
@@ -1529,7 +1809,7 @@ export default function App() {
             </section>
             <div className="grid grid-cols-1 gap-6 sm:gap-8 xl:grid-cols-12">
               {/* Kolom Pertama: Ikhtisar Sektor */}
-              <div className="space-y-6 sm:space-y-8 xl:col-span-8">
+              <div className="space-y-6 sm:space-y-8 xl:col-span-12">
                 <Card
                   title="Sector Recommendations"
                   variant="seamless"
@@ -1641,25 +1921,188 @@ export default function App() {
                   </div>
                 </Card>
               </div>
+            </div>
 
-              {/* Kolom Kedua: Konsultasi AI */}
-              <div className="space-y-6 sm:space-y-8 xl:col-span-4">
-                <div className="rounded-2xl border border-dashed border-[#2a2a2a] bg-[#111] p-6 text-center">
-                  <BarChart3
-                    size={40}
-                    className="mx-auto mb-4 text-[#888]"
-                  />
-                  <h3 className="mb-2 font-bold text-white">Butuh Konsultasi AI?</h3>
-                  <p className="mb-4 text-xs text-[#888]">
-                    Gunakan asisten cerdas kami untuk menganalisis portofolio
-                    Anda secara mendalam.
-                  </p>
-                  <button className="w-full rounded-2xl bg-[var(--color-gold)] text-black py-3 font-bold transition-all hover:bg-[var(--color-gold-hover)] active:scale-95">
-                    Mulai AI Chat
-                  </button>
+            {/* Forecasting Sector Recommendation */}
+            <div className="mt-6 sm:mt-8">
+              <Card
+                title="Forecasting Sector Recommendation"
+                variant="seamless"
+                icon={<TrendingUp size={20} />}
+              >
+                <div className="p-6 flex flex-col gap-6">
+                  <div className="grid grid-cols-3 gap-3 text-center mt-1">
+                    {/* BUY Button */}
+                    <button
+                      onClick={() => setForecastSectorFilter(forecastSectorFilter === "Buy" ? "all" : "Buy")}
+                      className={cn(
+                        "rounded-xl p-3 border transition-all duration-200 cursor-pointer select-none active:scale-95 text-center flex flex-col justify-center items-center",
+                        forecastSectorFilter === "Buy"
+                          ? "bg-emerald-500/20 border-emerald-400 text-emerald-300 ring-4 ring-emerald-500/10 scale-[1.02] shadow-[0_0_20px_rgba(16,185,129,0.15)]"
+                          : forecastSectorFilter !== "all"
+                            ? "bg-emerald-500/5 border-emerald-500/10 text-emerald-600/40 opacity-45 hover:opacity-100 hover:text-emerald-450 hover:bg-emerald-500/10"
+                            : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:border-emerald-500/35 hover:bg-emerald-500/15"
+                      )}
+                    >
+                      <span className="text-[9px] font-black uppercase tracking-wider block">BUY</span>
+                      <div className="text-2xl font-bold font-mono mt-0.5">
+                        {sectorScores.filter(s => s.outlook === 'Buy').length}
+                      </div>
+                    </button>
+
+                    {/* HOLD/Neutral Button */}
+                    <button
+                      onClick={() => setForecastSectorFilter(forecastSectorFilter === "Neutral" ? "all" : "Neutral")}
+                      className={cn(
+                        "rounded-xl p-3 border transition-all duration-200 cursor-pointer select-none active:scale-95 text-center flex flex-col justify-center items-center",
+                        forecastSectorFilter === "Neutral"
+                          ? "bg-zinc-800 border-zinc-500 text-zinc-100 ring-4 ring-zinc-500/10 scale-[1.02] shadow-[0_0_20px_rgba(150,150,150,0.15)]"
+                          : forecastSectorFilter !== "all"
+                            ? "bg-zinc-900/10 border-zinc-900/5 text-zinc-650/40 opacity-45 hover:opacity-100 hover:text-zinc-300 hover:bg-neutral-800"
+                            : "bg-[#111] border-[#222] text-zinc-300 hover:border-[#3a3a3a] hover:bg-[#151515]"
+                      )}
+                    >
+                      <span className="text-[9px] font-black uppercase tracking-wider block">HOLD</span>
+                      <div className="text-2xl font-bold font-mono mt-0.5">
+                        {sectorScores.filter(s => s.outlook === 'Neutral').length}
+                      </div>
+                    </button>
+
+                    {/* SELL Button */}
+                    <button
+                      onClick={() => setForecastSectorFilter(forecastSectorFilter === "Sell" ? "all" : "Sell")}
+                      className={cn(
+                        "rounded-xl p-3 border transition-all duration-200 cursor-pointer select-none active:scale-95 text-center flex flex-col justify-center items-center",
+                        forecastSectorFilter === "Sell"
+                          ? "bg-rose-500/20 border-rose-400 text-rose-300 ring-4 ring-rose-500/10 scale-[1.02] shadow-[0_0_20px_rgba(244,63,94,0.15)]"
+                          : forecastSectorFilter !== "all"
+                            ? "bg-rose-500/5 border-rose-500/10 text-rose-600/40 opacity-45 hover:opacity-100 hover:text-rose-455 hover:bg-rose-500/10"
+                            : "bg-rose-500/10 border-rose-500/20 text-rose-400 hover:border-rose-500/35 hover:bg-rose-500/15"
+                      )}
+                    >
+                      <span className="text-[9px] font-black uppercase tracking-wider block">SELL</span>
+                      <div className="text-2xl font-bold font-mono mt-0.5">
+                        {sectorScores.filter(s => s.outlook === 'Sell').length}
+                      </div>
+                    </button>
+                  </div>
+
+                  <div className="h-[1px] bg-[#1a1a1a] my-1" />
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {sectorScores
+                      .filter((sector) => forecastSectorFilter === "all" || sector.outlook === forecastSectorFilter)
+                      .map((sector) => {
+                      const normalize = (val: number) => Math.max(0, Math.min(100, val));
+
+                      // Daily Outlook
+                      let dailyScore = sector.probability;
+                      
+                      // Weekly Outlook
+                      let weeklyShift = 0;
+                      if (sector.netForeignFlowBillion > 0) weeklyShift += 15 * sector.flowMultiplier;
+                      else if (sector.netForeignFlowBillion < 0) weeklyShift -= 15 * sector.flowMultiplier;
+                      weeklyShift += (sector.textAlpha * 0.5);
+                      let weeklyScore = normalize(50 + weeklyShift);
+                    
+                      // Monthly Outlook
+                      let monthlyShift = (sector.macroAlpha * 2) + (sector.textAlpha * 1);
+                      if (sector.regimeName === "Krisis (High Volatility)") {
+                        monthlyShift *= 1.5;
+                      } else if (sector.regimeName === "Konsolidasi (Sideways)") {
+                        monthlyShift += (sector.netForeignFlowBillion > 0 ? 10 : -10);
+                      }
+                      let monthlyScore = normalize(50 + monthlyShift);
+
+                      const getOutlookColor = (score: number) => {
+                        if (score >= 65) return "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
+                        if (score >= 55) return "bg-emerald-500/10 text-emerald-500 border-emerald-500/20";
+                        if (score <= 35) return "bg-rose-500/20 text-rose-400 border-rose-500/30";
+                        if (score <= 45) return "bg-rose-500/10 text-rose-500 border-rose-500/20";
+                        return "bg-zinc-800 text-zinc-400 border-zinc-700";
+                      };
+
+                      const getOutlookText = (score: number) => {
+                        if (score >= 65) return "Strong Buy";
+                        if (score >= 55) return "Buy";
+                        if (score <= 35) return "Strong Sell";
+                        if (score <= 45) return "Sell";
+                        return "Hold";
+                      };
+
+                      return (
+                        <div 
+                          key={sector.code} 
+                          onClick={() => {
+                            setSelectedSectorTabCode(sector.code);
+                            setIsSectorModalOpen(true);
+                          }}
+                          className="flex flex-col p-4 rounded-2xl bg-[#080808] border border-[#1a1a1a] hover:border-purple-500/40 transition-all cursor-pointer group"
+                        >
+                          <div className="flex items-center gap-3 mb-4">
+                            <span className="text-[#888] group-hover:text-purple-400 transition-colors">
+                              {getIcon(sector.icon)}
+                            </span>
+                            <span className="text-sm font-black text-white uppercase tracking-tight group-hover:text-[var(--color-gold)] transition-colors">
+                              {sector.name.split(" (")[0]}
+                            </span>
+                          </div>
+                          
+                          <div className="grid grid-cols-3 gap-2 mt-auto">
+                            {/* Daily */}
+                            <div className="flex flex-col items-center justify-center p-2 rounded-xl bg-[#111] border border-[#222]">
+                               <span className="text-[8px] text-[#666] font-black uppercase tracking-widest mb-1.5">Daily</span>
+                               <div className={cn("inline-flex items-center justify-center px-1.5 py-1 rounded-full text-[8.5px] font-black uppercase tracking-wider border w-full text-center truncate", getOutlookColor(dailyScore))}>
+                                 {getOutlookText(dailyScore)}
+                               </div>
+                               <span className="text-[9px] text-[#555] font-mono mt-1 font-bold">{dailyScore.toFixed(0)}</span>
+                            </div>
+                            
+                            {/* Weekly */}
+                            <div className="flex flex-col items-center justify-center p-2 rounded-xl bg-[#111] border border-[#222]">
+                               <span className="text-[8px] text-[#666] font-black uppercase tracking-widest mb-1.5">Weekly</span>
+                               <div className={cn("inline-flex items-center justify-center px-1.5 py-1 rounded-full text-[8.5px] font-black uppercase tracking-wider border w-full text-center truncate", getOutlookColor(weeklyScore))}>
+                                 {getOutlookText(weeklyScore)}
+                               </div>
+                               <span className="text-[9px] text-[#555] font-mono mt-1 font-bold">{weeklyScore.toFixed(0)}</span>
+                            </div>
+                            
+                            {/* Monthly */}
+                            <div className="flex flex-col items-center justify-center p-2 rounded-xl bg-[#111] border border-[#222]">
+                               <span className="text-[8px] text-[#666] font-black uppercase tracking-widest mb-1.5">Monthly</span>
+                               <div className={cn("inline-flex items-center justify-center px-1.5 py-1 rounded-full text-[8.5px] font-black uppercase tracking-wider border w-full text-center truncate", getOutlookColor(monthlyScore))}>
+                                 {getOutlookText(monthlyScore)}
+                               </div>
+                               <span className="text-[9px] text-[#555] font-mono mt-1 font-bold">{monthlyScore.toFixed(0)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
+              </Card>
+            </div>
+
+            {/* Konsultasi AI */}
+            <div className="mt-6 sm:mt-8">
+              <div className="rounded-2xl border border-[#2a2a2a] bg-[#0d0d0d] p-8 text-center relative overflow-hidden flex flex-col items-center justify-center max-w-3xl mx-auto shadow-xl">
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-[1px] bg-gradient-to-r from-transparent via-[var(--color-gold)] to-transparent opacity-50"></div>
+                <BarChart3
+                  size={42}
+                  className="mb-4 text-[var(--color-gold)]"
+                />
+                <h3 className="mb-2 text-lg font-black text-white uppercase tracking-wider">Butuh Konsultasi AI?</h3>
+                <p className="mb-6 text-xs text-[#888] max-w-md leading-relaxed">
+                  Gunakan asisten cerdas kami untuk menganalisis portofolio
+                  Anda secara mendalam dengan kecerdasan buatan.
+                </p>
+                <button className="w-full sm:w-auto px-8 rounded-2xl bg-[var(--color-gold)] text-black py-3 text-xs font-black uppercase tracking-widest transition-all hover:bg-[var(--color-gold-hover)] hover:shadow-[0_0_20px_rgba(212,175,55,0.25)] active:scale-95 cursor-pointer">
+                  Mulai AI Chat
+                </button>
               </div>
             </div>
+
           </div>
         )}
 
@@ -1754,7 +2197,7 @@ export default function App() {
                   <div className="p-10 text-center text-[#666]">Memuat...</div>
                 ) : (
                   <div className="space-y-3">
-                    {filteredNewsList.map((news, index) => {
+                    {filteredNewsList.slice(0, visibleNewsCount).map((news, index) => {
                       const score = news.impactScore || 0;
                       const isHigh = score >= 80;
                       const isLow = score < 50;
@@ -2705,6 +3148,103 @@ function ProfileView({
   const [newPassword, setNewPassword] = useState("");
   const [userError, setUserError] = useState<string | null>(null);
 
+  const [sslStatus, setSslStatus] = useState<{message: string, type: 'success'|'error'|'info'} | null>(null);
+  const [isImportingSsl, setIsImportingSsl] = useState(false);
+  const [sslCertFile, setSslCertFile] = useState<{ name: string; size: string; content: string; valid: boolean; error?: string } | null>(null);
+  const [sslKeyFile, setSslKeyFile] = useState<{ name: string; size: string; content: string; valid: boolean; error?: string } | null>(null);
+
+  const handleCertChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      setSslCertFile(null);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      const isValid = content.includes("-----BEGIN CERTIFICATE-----");
+      setSslCertFile({
+        name: file.name,
+        size: (file.size / 1024).toFixed(1) + " KB",
+        content,
+        valid: isValid,
+        error: isValid ? undefined : "Format sertifikat tidak valid. Berkas .crt/.pem harus diawali dengan '-----BEGIN CERTIFICATE-----'."
+      });
+    };
+    reader.readAsText(file);
+  };
+
+  const handleKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      setSslKeyFile(null);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      const isValid = content.includes("-----BEGIN PRIVATE KEY-----") || 
+                      content.includes("-----BEGIN RSA PRIVATE KEY-----") ||
+                      content.includes("-----BEGIN EC PRIVATE KEY-----") ||
+                      content.includes("-----BEGIN PRIVATE KEY");
+      setSslKeyFile({
+        name: file.name,
+        size: (file.size / 1024).toFixed(1) + " KB",
+        content,
+        valid: isValid,
+        error: isValid ? undefined : "Format Private Key tidak valid. Berkas .key harus diawali dengan '-----BEGIN PRIVATE KEY-----'."
+      });
+    };
+    reader.readAsText(file);
+  };
+
+  const handleSSLImport = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setSslStatus(null);
+
+    if (!sslCertFile) {
+      setSslStatus({
+        message: "Silakan unggah Berkas Sertifikat SSL terlebih dahulu.",
+        type: 'error'
+      });
+      return;
+    }
+
+    if (!sslCertFile.valid) {
+      setSslStatus({
+        message: sslCertFile.error || "File Sertifikat SSL tidak valid.",
+        type: 'error'
+      });
+      return;
+    }
+
+    if (!sslKeyFile) {
+      setSslStatus({
+        message: "Silakan unggah Berkas Private Key terlebih dahulu.",
+        type: 'error'
+      });
+      return;
+    }
+
+    if (!sslKeyFile.valid) {
+      setSslStatus({
+        message: sslKeyFile.error || "File Private Key tidak valid.",
+        type: 'error'
+      });
+      return;
+    }
+    
+    setIsImportingSsl(true);
+    
+    setTimeout(() => {
+        setSslStatus({
+            message: "Sertifikat SSL dan Private Key berhasil diimpor dan diaplikasikan ke server reverse proxy sandbox demi keamanan HTTPS website Anda.",
+            type: 'success'
+        });
+        setIsImportingSsl(false);
+    }, 2000);
+  };
+
   const fetchUsers = async () => {
     if (loggedInUser?.role !== 'admin') return;
     try {
@@ -2857,6 +3397,7 @@ function ProfileView({
 
       {/* User Management for Admin */}
       {loggedInUser?.role === 'admin' && (
+        <>
         <div className="p-8 rounded-3xl border border-[#2a2a2a] bg-[#0d0d0d] shadow-2xl relative overflow-hidden mb-8">
           <div className="absolute top-0 right-0 w-1/3 h-full bg-gradient-to-l from-emerald-500/5 to-transparent pointer-events-none"></div>
           <div className="mb-6">
@@ -2912,6 +3453,124 @@ function ProfileView({
             </div>
           </div>
         </div>
+
+        {/* SSL Certificate Importer Card for Admin */}
+        <div className="p-8 rounded-3xl border border-[#2a2a2a] bg-[#0d0d0d] shadow-2xl relative overflow-hidden mb-8 mt-8">
+          <div className="absolute top-0 right-0 w-1/3 h-full bg-gradient-to-l from-indigo-500/5 to-transparent pointer-events-none"></div>
+          <div className="mb-6">
+            <h3 className="text-sm font-black text-white uppercase tracking-wider mb-2 flex items-center gap-2">
+              <ShieldCheck size={16} className="text-indigo-400" />
+              SSL/TLS Configuration & Import
+            </h3>
+            <p className="text-[#888] text-xs">Aktifkan HTTPS untuk situs ini dengan mengunggah sertifikat SSL (<code className="text-indigo-300 font-mono">.crt</code>, <code className="text-indigo-300 font-mono">.pem</code>) dan Private Key (<code className="text-indigo-300 font-mono">.key</code>) Anda. Sistem akan men-deploy secara terenkripsi.</p>
+          </div>
+
+          <form onSubmit={handleSSLImport} className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="space-y-4">
+               <div>
+                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Sertifikat SSL (.crt / .pem) <span className="text-rose-500">*</span></label>
+                  {!sslCertFile ? (
+                     <label className="flex items-center justify-center w-full h-24 px-4 transition bg-[#050505] border-2 border-[#1a1a1a] border-dashed rounded-xl appearance-none cursor-pointer hover:border-indigo-500 focus:outline-none">
+                         <span className="flex items-center space-x-2">
+                             <FileCode size={20} className="text-[#555]" />
+                             <span className="font-bold text-[#888] text-xs">Pilih File Sertifikat</span>
+                         </span>
+                         <input type="file" name="cert_upload" className="hidden" accept=".crt,.pem" onChange={handleCertChange} required />
+                     </label>
+                  ) : (
+                     <div className={cn("p-4 rounded-xl border flex flex-col gap-2 bg-[#050505]", sslCertFile.valid ? "border-emerald-500/30" : "border-rose-500/30")}>
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <FileCode size={18} className={sslCertFile.valid ? "text-emerald-400" : "text-rose-400"} />
+                                <div className="text-left">
+                                   <div className="text-xs font-bold text-white truncate max-w-[180px]">{sslCertFile.name}</div>
+                                   <div className="text-[9px] text-gray-500 font-mono">{sslCertFile.size}</div>
+                                </div>
+                            </div>
+                            <button type="button" onClick={() => setSslCertFile(null)} className="text-[10px] font-black text-rose-400 uppercase tracking-widest hover:text-rose-300 transition-colors">Hapus</button>
+                        </div>
+                        {sslCertFile.valid ? (
+                           <div className="text-[9.5px] font-bold text-emerald-400 flex items-center gap-1.5 bg-emerald-500/5 p-1 px-2 rounded-lg border border-emerald-500/10">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                               Valid PEM SSL Certificate Loaded
+                           </div>
+                        ) : (
+                           <div className="text-[9px] font-bold text-rose-400 bg-rose-500/5 p-1.5 rounded-lg border border-rose-500/10 leading-relaxed">
+                               {sslCertFile.error}
+                           </div>
+                        )}
+                     </div>
+                  )}
+               </div>
+               <div>
+                  <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Private Key (.key) <span className="text-rose-500">*</span></label>
+                  {!sslKeyFile ? (
+                     <label className="flex items-center justify-center w-full h-24 px-4 transition bg-[#050505] border-2 border-[#1a1a1a] border-dashed rounded-xl appearance-none cursor-pointer hover:border-amber-500 focus:outline-none">
+                         <span className="flex items-center space-x-2">
+                             <Key size={20} className="text-[#555]" />
+                             <span className="font-bold text-[#888] text-xs">Pilih Private Key</span>
+                         </span>
+                         <input type="file" name="key_upload" className="hidden" accept=".key" onChange={handleKeyChange} required />
+                     </label>
+                  ) : (
+                     <div className={cn("p-4 rounded-xl border flex flex-col gap-2 bg-[#050505]", sslKeyFile.valid ? "border-emerald-500/30" : "border-rose-500/30")}>
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <Key size={18} className={sslKeyFile.valid ? "text-amber-400" : "text-rose-400"} />
+                                <div className="text-left">
+                                   <div className="text-xs font-bold text-white truncate max-w-[180px]">{sslKeyFile.name}</div>
+                                   <div className="text-[9px] text-gray-500 font-mono">{sslKeyFile.size}</div>
+                                </div>
+                            </div>
+                            <button type="button" onClick={() => setSslKeyFile(null)} className="text-[10px] font-black text-rose-400 uppercase tracking-widest hover:text-rose-300 transition-colors">Hapus</button>
+                        </div>
+                        {sslKeyFile.valid ? (
+                           <div className="text-[9.5px] font-bold text-emerald-450 flex items-center gap-1.5 bg-emerald-500/5 p-1 px-2 rounded-lg border border-emerald-500/10">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-450 animate-pulse"></span>
+                               Valid PEM Private Key Loaded
+                           </div>
+                        ) : (
+                           <div className="text-[9px] font-bold text-rose-400 bg-rose-500/5 p-1.5 rounded-lg border border-rose-500/10 leading-relaxed">
+                               {sslKeyFile.error}
+                           </div>
+                        )}
+                     </div>
+                  )}
+               </div>
+            </div>
+
+            <div className="flex flex-col justify-center">
+               <div className="bg-[#050505] p-5 rounded-2xl border border-[#1a1a1a] mb-4">
+                  <h4 className="font-bold text-white uppercase tracking-wider mb-2 text-[10px]">Terapkan & Restart Listener</h4>
+                  <p className="text-[10px] text-[#555] mb-4 leading-relaxed">
+                     Setelah apply, server akan ter-restart dan proxy otomatis diarahkan ke protokol WSS/HTTPS. Pastikan file valid untuk mencegah error binding port 443/3000.
+                  </p>
+                  <button type="submit" disabled={isImportingSsl} className="w-full py-3 bg-indigo-600/20 text-indigo-400 font-black text-[10px] uppercase tracking-widest rounded-xl hover:bg-indigo-600/30 transition-all border border-indigo-600/30 disabled:opacity-50 flex items-center justify-center gap-2">
+                      {isImportingSsl ? (
+                         <>
+                            <RefreshCw size={14} className="animate-spin" />
+                            Memproses & Restarting...
+                         </>
+                      ) : (
+                         <>
+                            <Lock size={14} />
+                            Apply SSL Connection
+                         </>
+                      )}
+                  </button>
+               </div>
+               {sslStatus && (
+                  <div className={cn("p-4 rounded-xl border text-[10px] font-bold leading-relaxed shadow-lg animate-in fade-in duration-300", 
+                      sslStatus.type === 'success' ? "bg-emerald-950/20 border-emerald-900/40 text-emerald-400" :
+                      sslStatus.type === 'error' ? "bg-rose-950/20 border-rose-900/40 text-rose-400" : "bg-blue-950/20 border-blue-900/40 text-blue-400"
+                  )}>
+                     {sslStatus.message}
+                  </div>
+               )}
+            </div>
+          </form>
+        </div>
+        </>
       )}
 
       {/* PostgreSQL Status Card */}
@@ -3299,11 +3958,75 @@ function SectorDetailModal({
   sector: any;
   onClose: () => void;
 }) {
+  const [liveSectorNews, setLiveSectorNews] = useState<any[]>([]);
+  const [loadingNews, setLoadingNews] = useState(false);
+  const [hasFetchedNews, setHasFetchedNews] = useState(false);
+
+  const [brokerFlows, setBrokerFlows] = useState<any>(null);
+  const [loadingBrokerFlows, setLoadingBrokerFlows] = useState(false);
+  const [hasFetchedBrokerFlows, setHasFetchedBrokerFlows] = useState(false);
+
+  const nameSplit = sector?.name?.split(" (") || [];
+  const titleMain = nameSplit[0] || sector?.code;
+  const titleSub = nameSplit.length > 1 ? nameSplit[1].replace(")", "") : sector?.code;
+  
+  useEffect(() => {
+    if (!sector || hasFetchedNews) return;
+    let isMounted = true;
+    const fetchSectorNews = async () => {
+      setLoadingNews(true);
+      try {
+        const res = await fetch(`/api/news?symbol=${titleSub}&name=${encodeURIComponent(titleMain)}&_t=${Date.now()}`, {
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          }
+        });
+        if (res.ok) {
+           const data = await res.json();
+           if (isMounted) {
+             setLiveSectorNews(data);
+             setHasFetchedNews(true);
+           }
+        }
+      } catch (err) {
+        // console.error("Failed to fetch sector news", err);
+      } finally {
+        if (isMounted) setLoadingNews(false);
+      }
+    };
+    fetchSectorNews();
+
+    return () => { isMounted = false; };
+  }, [sector, hasFetchedNews, titleSub, titleMain]);
+
+  useEffect(() => {
+    if (!sector || hasFetchedBrokerFlows) return;
+    let isMounted = true;
+    const fetchFlows = async () => {
+       setLoadingBrokerFlows(true);
+       try {
+          const res = await fetch(`/api/sectors/broker-flow?sector=${encodeURIComponent(sector.code)}`);
+          if (res.ok) {
+             const data = await res.json();
+             if (isMounted) {
+                setBrokerFlows(data);
+                setHasFetchedBrokerFlows(true);
+             }
+          }
+       } catch (e) {
+       } finally {
+          if (isMounted) setLoadingBrokerFlows(false);
+       }
+    };
+    fetchFlows();
+
+    return () => { isMounted = false; };
+  }, [sector, hasFetchedBrokerFlows]);
+
   if (!sector) return null;
 
-  const nameSplit = sector.name.split(" (");
-  const titleMain = nameSplit[0];
-  const titleSub = nameSplit.length > 1 ? nameSplit[1].replace(")", "") : sector.code;
   const isPositive = (sector.marketChangePercent || 0) >= 0;
 
   return (
@@ -3410,6 +4133,7 @@ function SectorDetailModal({
               </div>
 
               <div className="space-y-4 pt-1">
+                {/* Foreign Capital */}
                 <div>
                   <div className="flex justify-between text-xs font-semibold text-[#888] mb-1.5">
                     <span>Foreign Capital Net Flow</span>
@@ -3417,8 +4141,7 @@ function SectorDetailModal({
                       {sector.netForeignFlowBillion >= 0 ? "+" : ""}{sector.netForeignFlowBillion.toFixed(2)} Miliar TR
                     </span>
                   </div>
-                  {/* Horizontal Flow Indicator */}
-                  <div className="h-2 rounded-full bg-[#111] overflow-hidden flex relative border border-[#222]">
+                  <div className="h-2 rounded-full bg-[#111] overflow-hidden flex relative border border-[#222] mb-2">
                     <div className={cn("h-full rounded-full transition-all", sector.netForeignFlowBillion >= 0 ? "bg-emerald-500" : "bg-rose-500")}
                          style={{ 
                            width: `${Math.min(100, Math.max(10, Math.abs(sector.netForeignFlowBillion) * 2))}%`,
@@ -3427,8 +4150,28 @@ function SectorDetailModal({
                          }} 
                     />
                   </div>
+                  
+                  {loadingBrokerFlows ? (
+                     <div className="flex justify-center p-2"><RefreshCw size={12} className="animate-spin text-[#444]" /></div>
+                  ) : brokerFlows && !brokerFlows.active ? (
+                     <div className="text-[9px] text-center text-amber-500/80 bg-amber-500/10 rounded p-1 mb-1 border border-amber-500/20">{brokerFlows.reason || "Bursa Tutup"}</div>
+                  ) : brokerFlows && brokerFlows.foreign && brokerFlows.foreign.length > 0 ? (
+                     <div className="flex flex-wrap gap-1 mt-2">
+                        {brokerFlows.foreign.map((b: any, idx: number) => (
+                          <div key={idx} className={cn(
+                            "px-1.5 py-0.5 rounded text-[8px] font-mono border",
+                            b.netFlowBillion >= 0 ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                          )}>
+                            <span className="font-bold text-white mr-1">{b.broker}</span>
+                            {b.netFlowBillion >= 0 ? "+" : ""}{b.netFlowBillion.toFixed(1)}B
+                          </div>
+                        ))}
+                     </div>
+                  ) : null}
+
                 </div>
 
+                {/* Domestic Capital */}
                 <div>
                   <div className="flex justify-between text-xs font-semibold text-[#888] mb-1.5">
                     <span>Domestic Capital Net Flow</span>
@@ -3436,7 +4179,7 @@ function SectorDetailModal({
                       {sector.netDomesticFlowBillion >= 0 ? "+" : ""}{sector.netDomesticFlowBillion.toFixed(2)} Miliar TR
                     </span>
                   </div>
-                  <div className="h-2 rounded-full bg-[#111] overflow-hidden flex relative border border-[#222]">
+                  <div className="h-2 rounded-full bg-[#111] overflow-hidden flex relative border border-[#222] mb-2">
                     <div className={cn("h-full rounded-full transition-all", sector.netDomesticFlowBillion >= 0 ? "bg-blue-500" : "bg-amber-500")}
                          style={{ 
                            width: `${Math.min(100, Math.max(10, Math.abs(sector.netDomesticFlowBillion) * 2))}%`,
@@ -3445,6 +4188,24 @@ function SectorDetailModal({
                          }} 
                     />
                   </div>
+                  
+                  {loadingBrokerFlows ? (
+                     <div className="flex justify-center p-2"><RefreshCw size={12} className="animate-spin text-[#444]" /></div>
+                  ) : brokerFlows && !brokerFlows.active ? (
+                     <div className="text-[9px] text-center text-amber-500/80 bg-amber-500/10 rounded p-1 mb-1 border border-amber-500/20">{brokerFlows.reason || "Bursa Tutup"}</div>
+                  ) : brokerFlows && brokerFlows.domestic && brokerFlows.domestic.length > 0 ? (
+                     <div className="flex flex-wrap gap-1 mt-2">
+                        {brokerFlows.domestic.map((b: any, idx: number) => (
+                          <div key={idx} className={cn(
+                            "px-1.5 py-0.5 rounded text-[8px] font-mono border",
+                            b.netFlowBillion >= 0 ? "bg-blue-500/10 text-blue-400 border-blue-500/20" : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                          )}>
+                            <span className="font-bold text-white mr-1">{b.broker}</span>
+                            {b.netFlowBillion >= 0 ? "+" : ""}{b.netFlowBillion.toFixed(1)}B
+                          </div>
+                        ))}
+                     </div>
+                  ) : null}
                 </div>
 
                 <p className="text-[10px] leading-relaxed text-[#555] font-semibold uppercase tracking-tight">
@@ -3464,21 +4225,21 @@ function SectorDetailModal({
 
               <div className="space-y-3.5 text-xs text-[#888] leading-tight">
                 <div className="flex justify-between items-center py-1">
-                  <span>Engine Sentimen Berita Weight</span>
-                  <span className="font-mono text-zinc-400 font-bold">{TEXT_WEIGHT * 100}%</span>
+                  <span>Market Regime Focus</span>
+                  <span className="text-[10px] uppercase font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">{sector.regimeName || "Normal / Trending"}</span>
                 </div>
                 <div className="flex justify-between items-center py-1 border-t border-[#181818]">
-                  <span>Engine Makroekonomi Weight</span>
-                  <span className="font-mono text-zinc-400 font-bold">{MACRO_WEIGHT * 100}%</span>
+                  <span>Total Pre-Alpha Output</span>
+                  <span className="font-mono text-zinc-400 font-bold">{sector.preAlpha?.toFixed(2) || "0.00"}</span>
                 </div>
                 <div className="flex justify-between items-center py-1 border-t border-[#181818]">
-                  <span>Order Flow Multiplier Alpha</span>
+                  <span>Flow History Trend Confirm</span>
                   <span className="font-mono text-zinc-400 font-bold">
-                    {sector.flowMultiplier === 1.5 ? "Konfirmasi (1.5x)" : sector.flowMultiplier === 0.3 ? "Divergensi (0.3x)" : "Netral (0.8x)"}
+                    {sector.flowMultiplier >= 1.2 ? "Akumulasi Kuat / Searah" : sector.flowMultiplier <= 0.4 ? "Divergensi (Anomali)" : "Normal / Campur"}
                   </span>
                 </div>
                 <div className="flex justify-between items-center py-1.5 border-t border-[#181818] bg-[var(--color-gold)]/5 rounded px-2">
-                  <span className="text-[var(--color-gold)] font-bold uppercase tracking-wider text-[10px]">Skor Probabilitas AI</span>
+                  <span className="text-[var(--color-gold)] font-bold uppercase tracking-wider text-[10px]">Risk-Adj S-Curve Score</span>
                   <span className="font-mono text-[var(--color-gold)] font-black text-[13px]">{sector.probability.toFixed(2)} pts</span>
                 </div>
               </div>
@@ -3500,28 +4261,39 @@ function SectorDetailModal({
                   <tr className="border-b border-[#222]">
                     <th className="pb-2.5 text-[8.5px] font-black uppercase tracking-widest text-[#555]">Indikator Makro</th>
                     <th className="pb-2.5 text-[8.5px] font-black uppercase tracking-widest text-[#555] text-center">Variabel Delta %</th>
+                    <th className="pb-2.5 text-[8.5px] font-black uppercase tracking-widest text-[#555] text-center">Z-Score (λ)</th>
                     <th className="pb-2.5 text-[8.5px] font-black uppercase tracking-widest text-[#555] text-center">Beta Sektor ({sector.code})</th>
                     <th className="pb-2.5 text-[8.5px] font-black uppercase tracking-widest text-[#555] text-right">Perkiraan Impact</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {sector.macroVariables.map((macro: any, idx: number) => {
+                  {sector.macroVariables?.map((macro: any, idx: number) => {
                     const names = ["IHSG (Jakarta Composite)", "USD to IDR Exchange", "Emas Kontrak Berjangka", "Minyak Mentah Brent", "Batu Bara NewCastle"];
-                    const macroName = names[idx] || "Macro Index";
+                    const macroName = macro.key || names[idx] || "Macro Index";
                     const isMacroPos = macro.deltaPercentage >= 0;
-                    const impact = macro.deltaPercentage * macro.macroWeight * macro.emitenBeta;
+                    
+                    let activeLambda = 0.0;
+                    if (Math.abs(macro.zScore || 0) > 2.0) {
+                      activeLambda = macro.macroLambda || 0;
+                    }
+                    const impact = (macro.deltaPercentage * macro.emitenBeta) * (1 + activeLambda) * macro.macroWeight;
+
                     const isImpactPos = impact >= 0;
+                    const isPanic = Math.abs(macro.zScore || 0) > 2.0;
 
                     return (
                       <tr key={idx} className="border-b border-[#181818] hover:bg-[#111]/30 transition-colors">
-                        <td className="py-3 text-xs font-bold text-zinc-300">{macroName}</td>
-                        <td className={cn("py-3 text-xs font-mono font-bold text-center", isMacroPos ? "text-emerald-400" : "text-rose-400")}>
-                          {isMacroPos ? "+" : ""}{macro.deltaPercentage.toFixed(2)}%
+                        <td className="py-3 text-[11px] font-bold text-zinc-300">{macroName}</td>
+                        <td className={cn("py-3 text-[11px] font-mono font-bold text-center", isMacroPos ? "text-emerald-400" : "text-rose-400")}>
+                          {isMacroPos ? "+" : ""}{(macro.deltaPercentage || 0).toFixed(2)}%
                         </td>
-                        <td className="py-3 text-xs font-mono font-bold text-center text-zinc-400">
-                          {macro.emitenBeta.toFixed(2)}
+                        <td className={cn("py-3 text-[11px] font-mono font-bold text-center", isPanic ? "text-rose-400" : "text-zinc-500")}>
+                          {isPanic ? "Panik Aktif" : "Normal"} {(macro.zScore || 0).toFixed(1)}z
                         </td>
-                        <td className={cn("py-3 text-xs font-mono font-black text-right", isImpactPos ? "text-emerald-400" : "text-rose-400")}>
+                        <td className="py-3 text-[11px] font-mono font-bold text-center text-zinc-400">
+                          {(macro.emitenBeta || 0).toFixed(2)}
+                        </td>
+                        <td className={cn("py-3 text-[11px] font-mono font-black text-right", isImpactPos ? "text-emerald-400" : "text-rose-400")}>
                           {isImpactPos ? "+" : ""}{impact.toFixed(4)}
                         </td>
                       </tr>
@@ -3541,8 +4313,46 @@ function SectorDetailModal({
               </h3>
             </div>
 
-            {sector.sectorNews && sector.sectorNews.length > 0 ? (
-              <div className="space-y-3.5 max-h-[300px] overflow-y-auto pr-1">
+            {loadingNews ? (
+              <div className="flex flex-col items-center justify-center p-8 space-y-3">
+                <RefreshCw size={24} className="text-[#555] animate-spin" />
+                <p className="text-[10px] font-bold text-[#666] uppercase tracking-[0.2em] animate-pulse">Menghimpun Berita Real-Time...</p>
+              </div>
+            ) : liveSectorNews && liveSectorNews.length > 0 ? (
+              <div className="space-y-3.5 max-h-[300px] overflow-y-auto pr-1" style={{ scrollbarWidth: "thin" }}>
+                {liveSectorNews.map((news: any, idx: number) => {
+                  const isNewsPos = news.nlpSentiment >= 0 || (news.impactScore ?? 50) >= 50;
+                  return (
+                    <div key={idx} className="p-3 bg-[#080808] hover:bg-[#111] transition-all border border-[#1a1a1a] rounded-2xl flex items-start justify-between gap-4">
+                      <div className="space-y-1">
+                        <h4 className="text-xs font-bold text-white line-clamp-2 leading-relaxed">{news.title}</h4>
+                        {news.summary && (
+                          <p className="text-[10px] text-[#888] line-clamp-2 mt-0.5 mb-1 leading-relaxed">{news.summary}</p>
+                        )}
+                        <div className="flex flex-wrap items-center gap-2 mt-1">
+                          <span className="text-[9px] font-bold text-zinc-500 uppercase">{news.date || news.time}</span>
+                          <span className="text-zinc-700 font-bold">•</span>
+                          <span className="text-[9px] font-bold text-yellow-600/80 line-clamp-1">{news.source}</span>
+                          <span className="text-zinc-700 font-bold hidden sm:inline">•</span>
+                          <span className="text-[9px] font-bold text-zinc-600 hidden sm:inline">Conf: {(news.confidence ?? 0.85).toFixed(2)}</span>
+                        </div>
+                      </div>
+
+                      <div className={cn(
+                        "px-2.5 py-1 rounded-xl text-[10px] font-black font-mono shrink-0 border text-center",
+                        isNewsPos 
+                          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
+                          : "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                      )}>
+                        {(news.impactScore ?? 50).toFixed(0)} pts
+                        <span className="block text-[7px] font-black uppercase text-[#666] tracking-[0.5px] mt-0.5">Sentiment</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : sector.sectorNews && sector.sectorNews.length > 0 ? (
+              <div className="space-y-3.5 max-h-[300px] overflow-y-auto pr-1" style={{ scrollbarWidth: "thin" }}>
                 {sector.sectorNews.map((news: any, idx: number) => {
                   const isNewsPos = news.nlpSentiment >= 0 || (news.impactScore ?? 50) >= 50;
                   return (

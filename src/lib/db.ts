@@ -166,6 +166,9 @@ export async function initializeDatabase() {
 
     client.release();
     logDbTrace("🎉 PostgreSQL Database Tables validated & initialized successfully.");
+    
+    // Auto-prune records older than 1 year upon initialization
+    await pruneOldDatabaseRecords();
   } catch (err: any) {
     logDbTrace(`❌ Connection / Migration Handshake failed: ${err.message}`);
     console.error("❌ DB_TRACE_ERROR:", err.message);
@@ -179,6 +182,80 @@ export async function initializeDatabase() {
       logDbTrace(`💡 Check list: Is the DB running? Is password correct? Port 5432 open? Did you allow remote access/SSL?`);
     }
     isDbConnected = false;
+  }
+}
+
+/**
+ * Automatically delete and prune historical news/trading plans older than 1 year 
+ * to conserve database space and satisfy retention rules based on news release date.
+ */
+export async function pruneOldDatabaseRecords() {
+  const activePool = getDbPool();
+  if (!activePool || !isDbConnected) return;
+
+  try {
+    const client = await activePool.connect();
+    
+    // Prune news based on its official release/publication date (pub_date_str) or insertion date
+    const oneYearAgo = Date.now() - 365 * 24 * 60 * 60 * 1000;
+    const { rows: newsRows } = await client.query(`SELECT id, pub_date_str, created_at FROM news`);
+    
+    const expiredNewsIds: string[] = [];
+    for (const row of newsRows) {
+      let isExpired = false;
+      
+      // 1. Check official publication / release date (issued date)
+      if (row.pub_date_str) {
+        const pubTime = Date.parse(row.pub_date_str);
+        if (!isNaN(pubTime) && pubTime < oneYearAgo) {
+          isExpired = true;
+        }
+      }
+      
+      // 2. Check fallback insertion date
+      if (row.created_at) {
+        const createdTime = new Date(row.created_at).getTime();
+        if (!isNaN(createdTime) && createdTime < oneYearAgo) {
+          isExpired = true;
+        }
+      }
+      
+      if (isExpired && row.id) {
+        expiredNewsIds.push(row.id);
+      }
+    }
+    
+    let newsCleaned = 0;
+    if (expiredNewsIds.length > 0) {
+      const deleteNewsRes = await client.query(
+        `DELETE FROM news WHERE id = ANY($1::varchar[])`,
+        [expiredNewsIds]
+      );
+      newsCleaned += (deleteNewsRes.rowCount ?? 0);
+    }
+    
+    // Secondary fallback cleanup via direct PostgreSQL query for news
+    const secondaryNewsClean = await client.query(
+      `DELETE FROM news WHERE created_at < NOW() - INTERVAL '1 year'`
+    );
+    newsCleaned += (secondaryNewsClean.rowCount ?? 0);
+    
+    // Prune trading plans older than 1 year
+    const prunePlansResult = await client.query(
+      `DELETE FROM trading_plans WHERE timestamp < NOW() - INTERVAL '1 year'`
+    );
+    
+    const plansCleaned = prunePlansResult.rowCount ?? 0;
+    
+    if (newsCleaned > 0 || plansCleaned > 0) {
+      logDbTrace(`🧹 Database Pruner: Berhasil menghapus ${newsCleaned} berita (berdasarkan tgl rilis/cache >1th) dan ${plansCleaned} trading plan lama.`);
+    } else {
+      logDbTrace(`🧹 Database Pruner: Database bersih, tidak ada berita atau trading plan yang rilis lebih dari 1 tahun lalu.`);
+    }
+    
+    client.release();
+  } catch (err: any) {
+    logDbTrace(`⚠️ Gagal menjalankan pembersihan database (pruning): ${err.message}`);
   }
 }
 
@@ -228,6 +305,9 @@ export async function saveNewsToDb(newsItems: any[]) {
       }
     }
     client.release();
+    
+    // Background non-blocking execution to keep DB fresh and auto-prune
+    pruneOldDatabaseRecords().catch(() => {});
   } catch (err: any) {
     console.warn("⚠️ Failed to write news to PostgreSQL:", err.message);
   }
@@ -301,6 +381,9 @@ export async function saveTradingPlanToDb(plan: any) {
         levels?.tranche3_AfterResistance
       ]
     );
+    
+    // Background non-blocking execution to keep DB fresh and auto-prune
+    pruneOldDatabaseRecords().catch(() => {});
   } catch (err: any) {
     console.warn("⚠️ Failed to save trading plan to PostgreSQL:", err.message);
   }
